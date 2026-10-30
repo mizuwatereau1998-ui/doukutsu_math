@@ -435,7 +435,7 @@ for (const lane of [1, 2])
       }
     });
   }
-test("コウモリは序盤には出ず、進行後は上下に生成される", () => {
+test("コウモリは設定した解禁前には出ず、開始時から高い確率で上下に生成される", () => {
   const rng = seeded(912),
     lanes = new Set();
   let count = 0;
@@ -450,7 +450,7 @@ test("コウモリは序盤には出ず、進行後は上下に生成される",
       lanes.add(o.lane);
     }
   }
-  assert.ok(count > 400 && count < 950);
+  assert.ok(Math.abs(count - 2000 * C.batChanceMax) < 100);
   assert.equal(lanes.size, 2);
 });
 test("敵の走行は距離に連動し、危険時に振幅が増し、ミス後だけ突進する", () => {
@@ -505,7 +505,10 @@ test("序盤のパターンは単独と2連続を含み、中盤以降に急降�
   for (let i = 0; i < 500; i++) {
     const a = P.Obstacles.createPattern(0, player, rng);
     early.add(a.length);
-    assert.ok(a.length <= 2 && a.every((o) => o.kind !== "bat"));
+    assert.ok(
+      a.length <= 2 &&
+        a.every((o) => o.kind !== "bat" || o.batType === "normal"),
+    );
     const b = P.Obstacles.createPattern(6000, player, rng);
     late.add(b.length);
     for (const o of b) if (o.kind === "bat") late.add(o.batType);
@@ -599,4 +602,42 @@ test("開始直後に衝突せず、算数開始時に群れ・急降下を含�
   assert.equal(g.obstacles.length, 0);
   advance(g, 0.5);
   assert.equal(g.obstacles.length, 0);
+});
+
+test("開始直後の32パターンすべてで、最初の算数より前にコウモリが画面内へ現れる", () => {
+  for (let seed = 0; seed < 32; seed++) {
+    const g = new P.Game({ rng: seeded(seed) });
+    g.start(3);
+    advance(g, 2.4);
+    assert.ok(
+      g.obstacles.some(
+        (o) => o.kind === "bat" && o.x < C.width && o.x + o.width > C.playerX,
+      ),
+    );
+    assert.equal(g.question, null);
+    assert.equal(g.misses, 0);
+  }
+});
+test("抽選が外れ続ける場合でも、最初と空振りパターン後には必ずコウモリが出る", () => {
+  const g = new P.Game({ rng: () => 0.99 });
+  g.start(3);
+  const seen = new WeakSet(),
+    groups = [];
+  for (let i = 0; i < 45 / C.fixedStep; i++) {
+    if (g.question) g.player.lane = answerLane(g);
+    else {
+      const direction = P.Obstacles.avoidance(g.player, g.obstacles, g.speed);
+      if (direction) g.move(direction);
+    }
+    g.update(C.fixedStep);
+    const fresh = g.obstacles.filter((o) => !seen.has(o));
+    if (fresh.length) {
+      groups.push(fresh.some((o) => o.kind === "bat"));
+      for (const o of fresh) seen.add(o);
+    }
+  }
+  assert.equal(groups[0], true);
+  assert.ok(groups.length >= 3);
+  for (let i = 1; i < groups.length; i++) assert.ok(groups[i] || groups[i - 1]);
+  assert.equal(g.misses, 0);
 });

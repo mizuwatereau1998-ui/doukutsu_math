@@ -104,6 +104,13 @@ with sync_playwright() as p:
     assert page.locator('#sound-button').get_attribute('aria-pressed') == 'false'
     assert not errors, errors
     print('PASS: PC操作・2択/3択・正解/不正解・回復・一時停止・結果・学年別保存・再読み込み', flush=True)
+    page.click('#start-button')
+    page.wait_for_timeout(2400)
+    assert page.evaluate('PopEscape.game.obstacles.some(o=>o.kind==="bat" && o.x<PopEscape.CONFIG.width)')
+    assert page.evaluate('PopEscape.game.question===null && PopEscape.game.misses===0')
+    page.screenshot(path='/tmp/poppun-early-bat.png',full_page=True)
+    print('PASS: 自然なゲーム進行で開始2.4秒後にコウモリが画面内に登場',flush=True)
+
 
     mobile = browser.new_context(viewport={'width': 844, 'height': 390}, device_scale_factor=2, is_mobile=True, has_touch=True)
     mp = mobile.new_page()

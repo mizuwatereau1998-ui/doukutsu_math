@@ -22,6 +22,8 @@
       this.player = P.Physics.createPlayer();
       this.obstacles = [];
       this.obstacleTimer = C.obstacleInitialDelay;
+      // 最初の配置に必ず登場。その後も抽選の偏りで出なくならないようにする。
+      this.patternsWithoutBat = C.batMaxDryPatterns;
       this.patternsSinceQuestion = 0;
       this.nextQuestionDistance = C.questionIntervalMeters;
       this.questionReadyAt = 0;
@@ -191,9 +193,13 @@
             this.player,
             this.obstacles,
             this.rng,
+            this.patternsWithoutBat >= C.batMaxDryPatterns,
           );
           this.obstacles.push(...group);
           if (group.length) {
+            this.patternsWithoutBat = group.some((o) => o.kind === "bat")
+              ? 0
+              : this.patternsWithoutBat + 1;
             this.patternsSinceQuestion++;
             // 連続配置を途中で消さず、最後の障害物の後に算数用の安全区間を置く。
             const tail = Math.max(

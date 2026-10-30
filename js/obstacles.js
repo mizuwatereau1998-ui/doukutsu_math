@@ -96,8 +96,17 @@
       drop + C.obstacleReactionSeconds,
     );
   }
-  function createPattern(distance, player, rng = Math.random) {
+  function createPattern(
+    distance,
+    player,
+    rng = Math.random,
+    forceBat = false,
+  ) {
     const first = create(distance, rng);
+    if (forceBat && distance >= C.batStartDistance) {
+      first.kind = "bat";
+      first.width = 36;
+    }
     first.lane = first.kind === "stalactite" ? 1 : Math.max(1, player.lane);
     first.batType = "normal";
     const pattern = [first];
@@ -158,8 +167,15 @@
     }
     return pattern;
   }
-  function plan(distance, speed, player, existing, rng = Math.random) {
-    const group = createPattern(distance, player, rng),
+  function plan(
+    distance,
+    speed,
+    player,
+    existing,
+    rng = Math.random,
+    forceBat = false,
+  ) {
+    const group = createPattern(distance, player, rng, forceBat),
       gap = gapSeconds();
     let eta = 0;
     for (const o of existing)
