@@ -22,7 +22,9 @@
       this.player = P.Physics.createPlayer();
       this.obstacles = [];
       this.obstacleTimer = 1.8;
-      this.nextQuestionAt = C.firstQuestionSeconds;
+      this.nextQuestionDistance = C.questionIntervalMeters;
+      this.questionReadyAt = 0;
+      this.obstacleReadyAt = 0;
       this.question = null;
       this.shake = 0;
       this.flash = 0;
@@ -60,10 +62,22 @@
       return (
         C.questionTimeMax -
         (C.questionTimeMax - C.questionTimeMin) *
-          P.clamp(this.distance / C.shortestTimeDistance, 0, 1)
+          P.clamp(
+            (this.distance - C.questionIntervalMeters) /
+              (C.shortestTimeDistance - C.questionIntervalMeters),
+            0,
+            1,
+          )
+      );
+    }
+    nearQuestion() {
+      return (
+        this.distance >= this.nextQuestionDistance - C.questionSafetyMeters &&
+        this.elapsed >= this.questionReadyAt - C.questionSafetySeconds
       );
     }
     beginQuestion() {
+      if (this.question) return;
       this.questionCount++;
       const count = this.distance >= C.threeChoiceDistance ? 3 : 2;
       const special =
@@ -74,14 +88,18 @@
         ...P.MathQuiz.generateQuestion(this.grade, count, this.rng),
         special,
         elapsed: 0,
-        duration: this.questionDuration(),
+        duration:
+          this.questionCount === 1
+            ? C.questionTimeMax
+            : this.questionDuration(),
       };
       this.player.lane = Math.max(count === 3 ? 0 : 1, this.player.lane);
       this.player.vy = 0;
       this.obstacles = []; // 計算中は障害物をなくし、分岐だけに集中できるように。
-      this.nextQuestionAt =
-        this.elapsed +
-        P.randomBetween(C.questionIntervalMin, C.questionIntervalMax, this.rng);
+      // 通過済みの節目は一つにまとめ、過去の問題を連続で消化しない。
+      this.nextQuestionDistance =
+        (Math.floor(this.distance / C.questionIntervalMeters) + 1) *
+        C.questionIntervalMeters;
       this.emit("question");
     }
     resolveQuestion() {
@@ -90,7 +108,9 @@
       const index = this.player.lane - (question.choices.length === 3 ? 0 : 1);
       this.total++;
       this.question = null;
-      this.obstacleTimer = 2;
+      this.obstacleTimer = 0;
+      this.obstacleReadyAt = this.elapsed + C.questionSafetySeconds;
+      this.questionReadyAt = this.elapsed + C.questionRestSeconds;
       // 3択の最上段は、問題を抜けたら中段へ安全に合流する。
       if (this.player.lane === 0) {
         this.player.lane = 1;
@@ -147,12 +167,31 @@
         this.question.elapsed += dt;
         if (this.question.elapsed >= this.question.duration)
           this.resolveQuestion();
-      } else if (this.elapsed >= this.nextQuestionAt) {
+      } else if (
+        this.distance >= this.nextQuestionDistance &&
+        this.elapsed >= this.questionReadyAt &&
+        this.player.grounded &&
+        this.player.invincible <= 0 &&
+        this.player.stumble <= 0
+      ) {
         this.beginQuestion();
-      } else {
+      } else if (this.elapsed >= this.obstacleReadyAt && !this.nearQuestion()) {
         this.obstacleTimer -= dt;
         if (this.obstacleTimer <= 0) {
-          this.obstacles.push(P.Obstacles.create(this.distance, this.rng));
+          const obstacle = P.Obstacles.create(this.distance, this.rng);
+          // 速いコウモリが先行する障害物に追いついて、同時に道を塞ぐのを防ぐ。
+          const rate = P.Obstacles.speedFactor(obstacle) * this.speed;
+          for (const previous of this.obstacles) {
+            const eta =
+              (previous.x + previous.width - C.playerX) /
+              (this.speed * P.Obstacles.speedFactor(previous));
+            if (eta >= 0)
+              obstacle.x = Math.max(
+                obstacle.x,
+                C.playerX + rate * (eta + C.obstacleMinEncounterGap),
+              );
+          }
+          this.obstacles.push(obstacle);
           const difficulty = P.clamp(
             this.distance / C.shortestTimeDistance,
             0,
@@ -164,8 +203,11 @@
             this.rng() * 0.6;
         }
       }
+      // 問題直前の安全区間では、既存の飛来物も含めて取り除く。
+      if (!this.question && this.nearQuestion()) this.obstacles = [];
       for (const obstacle of this.obstacles) {
-        obstacle.x -= this.speed * dt;
+        obstacle.x -= this.speed * P.Obstacles.speedFactor(obstacle) * dt;
+        obstacle.age = (obstacle.age || 0) + dt;
         if (!this.question && P.Obstacles.hits(obstacle, this.player)) {
           obstacle.hit = true;
           this.miss(obstacle.kind);

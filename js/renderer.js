@@ -20,6 +20,24 @@
     worldX(index, spacing, scroll, ratio = 1) {
       return index * spacing - scroll * ratio;
     },
+    chase(game, reduced = false) {
+      const phase = ((game.distance * C.pixelsPerMeter) / 158) * Math.PI * 2;
+      const pressure = P.clamp(game.misses / C.maxMisses, 0, 1);
+      const stride = reduced ? 0 : Math.sin(phase) * (10 + pressure * 8);
+      const recent = P.clamp(
+        game.player.invincible / C.invincibleSeconds,
+        0,
+        1,
+      );
+      return {
+        phase,
+        pressure,
+        stride,
+        bounce: reduced ? 0 : Math.abs(Math.sin(phase)) * (5 + pressure * 6),
+        angle: reduced ? 0 : 0.06 + pressure * 0.035,
+        lunge: reduced ? 0 : Math.sin((1 - recent) * Math.PI) * 10,
+      };
+    },
     pose(game, landing = 0, reduced = false) {
       const p = game.player;
       const phase =
@@ -439,13 +457,37 @@
         "#0c2936",
       );
     }
-    monster(x, y, scale, time, danger) {
+    monster(x, y, scale, time, danger, motion = null) {
       const c = this.ctx;
       c.save();
       c.translate(x, y);
       c.scale(scale, scale);
-      const bounce = Math.sin(time * 7) * 3;
-      c.translate(0, bounce);
+      const m = motion || {
+        phase: time * 7,
+        stride: Math.sin(time * 7) * 10,
+        pressure: danger ? 1 : 0.2,
+        bounce: Math.abs(Math.sin(time * 7)) * 5,
+        angle: 0.06,
+        lunge: 0,
+      };
+      c.translate(m.lunge, -m.bounce);
+      c.rotate(m.angle);
+      // 奥の手足→胴→手前の手足。互い違いに大きく振って、重い足取りを出す。
+      this.ellipse(
+        -66 - m.stride,
+        3 - Math.max(0, -Math.sin(m.phase)) * 10,
+        27,
+        13,
+        "#4d4a69",
+      );
+      c.strokeStyle = "#514e70";
+      c.lineWidth = 18;
+      c.lineCap = "round";
+      c.beginPath();
+      c.moveTo(-77, -84);
+      c.quadraticCurveTo(-105, -66, -91 + m.stride, -30);
+      c.stroke();
+      this.ellipse(-91 + m.stride, -30, 13, 15, "#736689");
       this.polygon(
         [
           [-100, -25],
@@ -487,8 +529,20 @@
         ],
         "#c6b4ad",
       );
-      this.ellipse(-40, -87, 25, 29, "#ffdf9d");
-      this.ellipse(39, -87, 25, 29, "#ffdf9d");
+      this.ellipse(
+        -40,
+        -87,
+        25 + m.pressure * 3,
+        29 + m.pressure * 2,
+        "#ffdf9d",
+      );
+      this.ellipse(
+        39,
+        -87,
+        25 + m.pressure * 3,
+        29 + m.pressure * 2,
+        "#ffdf9d",
+      );
       this.ellipse(-33, -83, 8, 13, "#2c3449");
       this.ellipse(47, -83, 8, 13, "#2c3449");
       c.strokeStyle = "#3f3c60";
@@ -496,12 +550,12 @@
       c.lineCap = "round";
       c.beginPath();
       c.moveTo(-63, -119);
-      c.lineTo(-29, -115);
-      c.moveTo(23, -113);
+      c.lineTo(-29, -115 + m.pressure * 7);
+      c.moveTo(23, -113 + m.pressure * 7);
       c.lineTo(56, -122);
       c.stroke();
       c.beginPath();
-      c.ellipse(0, -34, 53, 25, 0, 0, Math.PI * 2);
+      c.ellipse(0, -34, 53, 25 + m.pressure * 6, 0, 0, Math.PI * 2);
       c.fillStyle = "#3b3758";
       c.fill();
       for (let i = -1; i <= 1; i++)
@@ -515,8 +569,20 @@
         );
       this.ellipse(-76, -36, 16, 8, "#ac819166");
       this.ellipse(77, -36, 16, 8, "#ac819166");
-      this.ellipse(-68, 5, 26, 11, "#615979");
-      this.ellipse(59, 5, 26, 11, "#615979");
+      c.strokeStyle = "#8b7b9c";
+      c.lineWidth = 17;
+      c.beginPath();
+      c.moveTo(72, -77);
+      c.quadraticCurveTo(98, -61, 89 - m.stride, -38);
+      c.stroke();
+      this.ellipse(89 - m.stride, -38, 13, 15, "#a18da9");
+      this.ellipse(
+        59 + m.stride,
+        5 - Math.max(0, Math.sin(m.phase)) * 13,
+        28,
+        13,
+        "#88799a",
+      );
       if (danger) {
         this.star(103, -142, 9, "#ffca87");
       }
@@ -717,6 +783,73 @@
         c.stroke();
       }
     }
+    bat(obstacle) {
+      const c = this.ctx,
+        x = obstacle.x + obstacle.width / 2,
+        y = P.Obstacles.batY(obstacle);
+      const flap = this.reducedMotion.matches
+        ? 0.2
+        : Math.sin((obstacle.age || 0) * 18 + obstacle.seed * 6.28);
+      c.save();
+      c.translate(x, y);
+      c.rotate(Math.sin((obstacle.age || 0) * 3) * 0.05);
+      // 羽先より小さい胴体だけが衝突対象。明るい輪郭で洞窟から分離する。
+      for (const side of [-1, 1]) {
+        c.save();
+        c.scale(side, 1);
+        this.polygon(
+          [
+            [6, -5],
+            [22, -18 - flap * 13],
+            [45, -7 - flap * 20],
+            [35, 3],
+            [28, 0],
+            [24, 11],
+            [16, 7],
+            [8, 13],
+          ],
+          "#67517e",
+          "#c3acd1",
+          1.5,
+        );
+        c.strokeStyle = "#9d81b4";
+        c.lineWidth = 1;
+        c.beginPath();
+        c.moveTo(8, -2);
+        c.lineTo(28, -3 - flap * 8);
+        c.stroke();
+        c.restore();
+      }
+      this.ellipse(0, 0, 18, 13, "#44395e");
+      this.polygon(
+        [
+          [-13, -6],
+          [-12, -22],
+          [-3, -12],
+          [5, -12],
+          [13, -22],
+          [14, -4],
+        ],
+        "#514267",
+        "#c3acd1",
+        1,
+      );
+      this.ellipse(-6, -2, 3.5, 4, "#ffdf8e");
+      this.ellipse(6, -2, 3.5, 4, "#ffdf8e");
+      this.ellipse(-7, -2, 1.3, 2, "#372b50");
+      this.ellipse(5, -2, 1.3, 2, "#372b50");
+      this.polygon(
+        [
+          [-4, 5],
+          [-1, 9],
+          [1, 5],
+          [4, 9],
+          [5, 4],
+        ],
+        "#fff0ce",
+      );
+      c.restore();
+    }
     tracks(game) {
       const c = this.ctx,
         q = game.question,
@@ -749,6 +882,10 @@
         if (start < 1300) this.terrain(start, y, 1300 - start, lane, scroll);
       }
       for (const o of game.obstacles) {
+        if (o.kind === "bat") {
+          this.bat(o);
+          continue;
+        }
         if (o.kind !== "stalactite") continue;
         const x = o.x,
           w = o.width,
@@ -869,6 +1006,7 @@
         1.05 + game.misses * 0.095,
         time,
         game.misses >= 3,
+        Visual.chase(game, this.reducedMotion.matches),
       );
       if (this.lastPlayer !== game.player) {
         this.lastPlayer = game.player;

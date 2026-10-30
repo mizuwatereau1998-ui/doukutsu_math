@@ -60,7 +60,7 @@ with sync_playwright() as p:
     assert page.evaluate('PopEscape.game.distance') == distance
     page.click('#resume-button')
     # 最初の問題の予定時刻を早め、通常の更新処理で開始。
-    page.evaluate('PopEscape.game.nextQuestionAt=0')
+    page.evaluate('PopEscape.game.nextQuestionDistance=0')
     page.wait_for_function('PopEscape.game.question !== null')
     assert page.evaluate('PopEscape.game.question.choices.length') == 2
     assert page.locator('#question-banner').is_visible()
@@ -116,6 +116,20 @@ with sync_playwright() as p:
     mp.wait_for_timeout(850)
     swipe(mp, 600, 200, 28)
     assert mp.evaluate('PopEscape.game.player.lane') == 2
+    mp.wait_for_timeout(500)
+    mp.evaluate("""() => {
+      const g=PopEscape.game;g.nextQuestionDistance=99999;
+      g.obstacles=[{kind:'bat',lane:2,x:800,width:36,age:0,seed:0}];
+    }""")
+    mp.wait_for_timeout(100)
+    mp.screenshot(path='/tmp/poppun-bat.png', full_page=True)
+    mp.evaluate('PopEscape.game.obstacles[0].x=PopEscape.CONFIG.playerX')
+    mp.wait_for_function('PopEscape.game.misses===1')
+    mp.evaluate("PopEscape.game.obstacles=[{kind:'bat',lane:2,x:310,width:36,age:0,seed:0}]")
+    mp.wait_for_timeout(100)
+    assert mp.evaluate('PopEscape.game.misses') == 1
+    mp.evaluate('PopEscape.game.obstacles=[]')
+    mp.wait_for_timeout(1300)
     mp.evaluate('PopEscape.game.distance=1200;PopEscape.game.beginQuestion()')
     swipe(mp, 600, 250, -20)
     assert mp.evaluate('PopEscape.game.player.lane') == 1

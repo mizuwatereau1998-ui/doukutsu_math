@@ -197,7 +197,7 @@ test("距離に合わせて速度が上がり、判断時間は10秒から2秒�
   const game = new P.Game();
   game.start(3);
   assert.equal(game.questionDuration(), 10);
-  game.distance = C.shortestTimeDistance / 2;
+  game.distance = (C.shortestTimeDistance + C.questionIntervalMeters) / 2;
   assert.equal(game.questionDuration(), 6);
   const speed = game.speed;
   game.update(C.fixedStep);
@@ -229,6 +229,7 @@ for (const seed of [917, 1, 42, 305])
   test(`自動生成 seed=${seed}: 3分間、移動・ジャンプで全障害物と分岐を通過できる`, () => {
     const game = new P.Game({ rng: seeded(seed) });
     game.start(4);
+    const seen = new Set();
     let crossings = 0,
       lastCount = 0;
     for (let i = 0; i < 180 / C.fixedStep; i++) {
@@ -240,13 +241,21 @@ for (const seed of [917, 1, 42, 305])
         const near = game.obstacles
           .filter((o) => o.x + o.width >= C.playerX - 16)
           .sort((a, b) => a.x - b.x)[0];
-        if (near && near.x - C.playerX < game.speed * 0.38) {
-          if (near.kind === "stalactite") game.move(1);
+        if (
+          near &&
+          near.x - C.playerX < game.speed * P.Obstacles.speedFactor(near) * 0.38
+        ) {
+          if (
+            near.kind === "stalactite" ||
+            (near.kind === "bat" && near.lane === 1)
+          )
+            game.move(1);
           else if (near.lane === game.player.lane && game.player.grounded)
             game.move(-1);
         }
       }
       game.update(C.fixedStep);
+      for (const obstacle of game.obstacles) seen.add(obstacle.kind);
       if (game.questionCount > lastCount) {
         crossings++;
         lastCount = game.questionCount;
@@ -254,6 +263,7 @@ for (const seed of [917, 1, 42, 305])
       assert.equal(game.mode, "running", `distance=${game.distance}`);
     }
     assert.equal(game.misses, 0);
+    assert.ok(seen.has("bat"), "コウモリが実際の進行で出現する");
     assert.ok(crossings >= 6);
     assert.ok(game.correct >= 6);
     assert.ok(game.distance > 3600);
@@ -334,7 +344,149 @@ test("PNGと図形は同じ変形を受け、描画を繰り返してもゲー�
     transforms,
   );
   assert.ok(calls.some((c) => c[0] === "drawImage"));
+  g.misses = 3;
+  g.player.invincible = 0.6;
+  g.obstacles = [
+    { kind: "bat", lane: 1, x: 800, width: 36, age: 0.5, seed: 0.2 },
+  ];
   const before = JSON.stringify(g);
   for (let i = 0; i < 5; i++) renderer.render(g, i / 60);
   assert.equal(JSON.stringify(g), before);
 });
+
+test("150mの節目で出題し、重複せず、終了後は休止区間を守って遅延出題する", () => {
+  const g = new P.Game();
+  g.start(3);
+  g.distance = 149;
+  g.update(C.fixedStep);
+  assert.equal(g.question, null);
+  g.distance = 150;
+  g.update(C.fixedStep);
+  assert.ok(g.question);
+  assert.equal(g.question.duration, 10);
+  assert.equal(g.nextQuestionDistance, 300);
+  const question = g.question;
+  g.beginQuestion();
+  assert.equal(g.question, question);
+  g.distance = 610;
+  g.player.lane = answerLane(g);
+  g.resolveQuestion();
+  const ended = g.elapsed;
+  advance(g, C.questionRestSeconds - 0.1);
+  assert.equal(g.question, null);
+  advance(g, 0.2);
+  assert.ok(g.question);
+  assert.ok(g.elapsed - ended >= C.questionRestSeconds);
+  assert.equal(g.questionCount, 2);
+  assert.equal(g.nextQuestionDistance % 150, 0);
+  assert.ok(g.nextQuestionDistance > g.distance); // 通過済み問題の連続消化をしない
+});
+test("問題直前・問題中・直後の安全区間にはコウモリも残らない", () => {
+  const g = new P.Game();
+  g.start(3);
+  g.distance = 150 - C.questionSafetyMeters;
+  g.obstacles = [
+    { kind: "bat", x: C.playerX, width: 36, lane: 2, age: 0, seed: 0 },
+  ];
+  g.update(C.fixedStep);
+  assert.equal(g.misses, 0);
+  assert.equal(g.obstacles.length, 0);
+  g.beginQuestion();
+  g.player.lane = answerLane(g);
+  g.resolveQuestion();
+  advance(g, C.questionSafetySeconds - 0.05);
+  assert.equal(g.obstacles.length, 0);
+  advance(g, 0.2);
+  assert.ok(g.obstacles.length > 0); // 終了後のアクション区間には復帰
+});
+for (const lane of [1, 2])
+  for (const speed of [C.startSpeed, C.maxSpeed]) {
+    test(`コウモリ lane=${lane} speed=${speed}: 接触・無敵・見てからの回避`, () => {
+      const g = new P.Game();
+      g.start(3);
+      g.speed = speed;
+      g.player.lane = lane;
+      g.player.y = C.lanes[lane];
+      const bat = {
+        kind: "bat",
+        lane,
+        x: C.playerX,
+        width: 36,
+        age: 0,
+        seed: 0,
+      };
+      assert.ok(P.Obstacles.hits(bat, g.player));
+      g.player.invincible = 1;
+      assert.equal(P.Obstacles.hits(bat, g.player), false);
+      g.player.invincible = 0;
+      bat.x = C.playerX + speed * C.batSpeedFactor * 0.5;
+      g.move(lane === 1 ? 1 : -1);
+      for (let i = 0; i < 120; i++) {
+        P.Physics.update(g.player, C.fixedStep, null);
+        bat.age += C.fixedStep;
+        bat.x -= speed * C.batSpeedFactor * C.fixedStep;
+        assert.equal(P.Obstacles.hits(bat, g.player), false);
+      }
+    });
+  }
+test("コウモリは序盤には出ず、進行後は上下に生成される", () => {
+  const rng = seeded(912),
+    lanes = new Set();
+  let count = 0;
+  for (let i = 0; i < 2000; i++) {
+    assert.notEqual(
+      P.Obstacles.create(C.batStartDistance - 1, rng).kind,
+      "bat",
+    );
+    const o = P.Obstacles.create(4000, rng);
+    if (o.kind === "bat") {
+      count++;
+      lanes.add(o.lane);
+    }
+  }
+  assert.ok(count > 400 && count < 950);
+  assert.equal(lanes.size, 2);
+});
+test("敵の走行は距離に連動し、危険時に振幅が増し、ミス後だけ突進する", () => {
+  const g = new P.Game();
+  g.start(3);
+  const base = P.Visual.chase(g);
+  g.distance = 39.5 / C.pixelsPerMeter;
+  const run = P.Visual.chase(g);
+  assert.ok(run.bounce > base.bounce);
+  g.misses = 4;
+  const danger = P.Visual.chase(g);
+  assert.ok(danger.bounce > run.bounce);
+  g.player.invincible = C.invincibleSeconds / 2;
+  assert.ok(P.Visual.chase(g).lunge > 9);
+  assert.equal(P.Visual.chase(g, true).lunge, 0);
+});
+
+for (const seed of [17, 81, 291, 832])
+  test(`最大速度の混合配置 seed=${seed}: コウモリを含む全種類を操作で回避`, () => {
+    const g = new P.Game({ rng: seeded(seed) });
+    g.start(3);
+    g.distance = 10000;
+    g.nextQuestionDistance = Infinity;
+    const seen = new Set();
+    for (let i = 0; i < 90 / C.fixedStep; i++) {
+      const near = g.obstacles
+        .filter((o) => o.x + o.width >= C.playerX - 16)
+        .sort((a, b) => a.x - b.x)[0];
+      if (
+        near &&
+        near.x - C.playerX < g.speed * P.Obstacles.speedFactor(near) * 0.38
+      ) {
+        if (
+          near.kind === "stalactite" ||
+          (near.kind === "bat" && near.lane === 1)
+        )
+          g.move(1);
+        else if (near.lane === g.player.lane && g.player.grounded) g.move(-1);
+      }
+      g.update(C.fixedStep);
+      for (const o of g.obstacles) seen.add(o.kind);
+      assert.equal(g.misses, 0, `distance=${g.distance}`);
+    }
+    assert.equal(seen.size, 3);
+  });
