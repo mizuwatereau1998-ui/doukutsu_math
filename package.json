@@ -1,0 +1,14 @@
+{
+  "name": "poppun-great-escape",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ポップンの大脱走！ ブラウザで動く算数学習アクション",
+  "scripts": {
+    "start": "python3 -m http.server 8000 --bind 0.0.0.0",
+    "test": "node tests/game.test.mjs",
+    "check": "node --check js/config.js && node --check js/math.js && node --check js/physics.js && node --check js/obstacles.js && node --check js/game.js && node --check js/renderer.js && node --check js/input.js && node --check js/main.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

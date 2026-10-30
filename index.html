@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#f6f4ec" />
+    <meta
+      name="description"
+      content="かけて、わって、とびこえて。青いゼリーのポップンと、算数で切りぬける洞窟の大冒険！"
+    />
+    <title>ポップンの大脱走！｜算数×洞窟アクション</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css" />
+    <script defer src="js/config.js"></script>
+    <script defer src="js/math.js"></script>
+    <script defer src="js/physics.js"></script>
+    <script defer src="js/obstacles.js"></script>
+    <script defer src="js/game.js"></script>
+    <script defer src="js/renderer.js"></script>
+    <script defer src="js/input.js"></script>
+    <script defer src="js/main.js"></script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="site-header">
+        <a class="brand" href="./" aria-label="ポップンの大脱走！ ホーム">
+          <svg viewBox="0 0 44 44" aria-hidden="true">
+            <path
+              d="M5 29C2 15 12 6 23 7s19 12 16 24c-2 9-32 10-34-2Z"
+              fill="#51c7ed"
+              stroke="#225663"
+              stroke-width="2"
+            />
+            <ellipse cx="15" cy="22" rx="2" ry="3" fill="#164450" />
+            <ellipse cx="29" cy="22" rx="2" ry="3" fill="#164450" />
+            <path
+              d="M19 27q3 4 6 0"
+              fill="none"
+              stroke="#164450"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+            <path
+              d="M12 15q3-4 7-4"
+              stroke="white"
+              opacity=".7"
+              stroke-width="3"
+              fill="none"
+              stroke-linecap="round"
+            />
+          </svg>
+          <span
+            >POPPUN<span class="brand-dot">.</span
+            ><small>ちいさな勇気で、大冒険。</small></span
+          >
+        </a>
+        <div class="header-right">
+          <span class="prototype">あそべる試作版 <b>01</b></span
+          ><button
+            class="icon-button"
+            id="sound-button"
+            aria-label="効果音をオフにする"
+            aria-pressed="true"
+            title="効果音"
+          >
+            ♪
+          </button>
+        </div>
+      </header>
+
+      <main>
+        <section
+          class="arcade"
+          id="arcade"
+          aria-label="ポップンの大脱走！ ゲーム画面"
+        >
+          <canvas
+            id="game-canvas"
+            width="1280"
+            height="720"
+            aria-label="洞窟を走るポップンと、答えを選ぶ分岐ルート"
+          ></canvas>
+          <div class="screen title-screen" id="title-screen">
+            <div class="title-content">
+              <div class="eyebrow">
+                <span></span> 算数 × エンドレスアクション
+              </div>
+              <h1>
+                ポップンの<br /><em>大脱走！</em
+                ><span class="title-star" aria-hidden="true">✦</span>
+              </h1>
+              <p class="title-copy">
+                かけて、わって、とびこえて。<br />ひらめきひとつで、どこまでも！
+              </p>
+              <fieldset class="grade-picker">
+                <legend>
+                  きみは何年生？ <span>学年をえらんでスタート</span>
+                </legend>
+                <div class="grade-options">
+                  <button type="button" disabled>
+                    <b>小1</b><small>準備中</small>
+                  </button>
+                  <button type="button" disabled>
+                    <b>小2</b><small>準備中</small>
+                  </button>
+                  <button
+                    type="button"
+                    data-grade="3"
+                    class="selected"
+                    aria-pressed="true"
+                  >
+                    <b>小3</b><small>えらぶ</small>
+                  </button>
+                  <button type="button" data-grade="4" aria-pressed="false">
+                    <b>小4</b><small>えらぶ</small>
+                  </button>
+                  <button type="button" disabled>
+                    <b>小5</b><small>準備中</small>
+                  </button>
+                  <button type="button" disabled>
+                    <b>小6</b><small>準備中</small>
+                  </button>
+                </div>
+              </fieldset>
+              <button class="primary-button" id="start-button">
+                さあ、にげよう！ <span aria-hidden="true">→</span>
+              </button>
+              <p class="title-best">
+                <span aria-hidden="true">⚑</span> 小<span id="best-grade"
+                  >3</span
+                >の最高記録 <b id="title-best">0</b><span>m</span>
+              </p>
+            </div>
+            <span class="scene-label" aria-hidden="true"
+              ><i></i> きらめきの鍾乳洞 <small>THE CRYSTAL CAVE</small></span
+            >
+            <span class="title-footer"
+              >↑ ジャンプ・上へ　 ↓ 下へ　／　スマホは上下スワイプ</span
+            >
+          </div>
+
+          <div class="hud" id="hud" hidden>
+            <div class="distance-card">
+              <span>ただいまの距離</span>
+              <div><b id="distance">0</b><small>m</small></div>
+              <p>BEST <span id="hud-best">0</span> m</p>
+            </div>
+            <div class="chase-card">
+              <div>
+                <span id="chase-label">追手とのきょり</span
+                ><b id="chase-status">よゆう！</b>
+              </div>
+              <div
+                class="chase-meter"
+                role="meter"
+                aria-label="追手との距離。残り5段階"
+                aria-valuemin="0"
+                aria-valuemax="5"
+                aria-valuenow="5"
+              >
+                <i></i><i></i><i></i><i></i><i></i>
+              </div>
+            </div>
+            <button
+              class="pause-button"
+              id="pause-button"
+              aria-label="一時停止"
+              title="一時停止（Esc）"
+            >
+              Ⅱ
+            </button>
+          </div>
+
+          <div class="question-banner" id="question-banner" hidden>
+            <div class="question-caption">正しい答えの道へ！</div>
+            <div class="equation" id="equation"></div>
+            <div class="question-timer"><i id="question-progress"></i></div>
+          </div>
+          <div
+            class="game-toast"
+            id="game-toast"
+            role="status"
+            aria-live="polite"
+          ></div>
+          <div class="run-hint" id="run-hint" hidden>
+            <span><kbd>↑</kbd> ジャンプ・上へ</span
+            ><span><kbd>↓</kbd> 下の道へ</span
+            ><span class="swipe-hint">上下スワイプでもあそべるよ</span>
+          </div>
+
+          <div class="screen modal-screen" id="pause-screen" hidden>
+            <div class="modal pause-modal">
+              <span class="modal-eyebrow">TAKE A LITTLE BREATH</span>
+              <h2>ひとやすみ。</h2>
+              <p>ポップンも、ちょっと深呼吸。</p>
+              <button class="primary-button" id="resume-button">
+                つづきをあそぶ <span>→</span></button
+              ><button class="text-button" id="pause-home-button">
+                学年選択にもどる
+              </button>
+            </div>
+          </div>
+          <div class="screen modal-screen" id="result-screen" hidden>
+            <div class="modal result-modal">
+              <span class="modal-eyebrow">NICE RUN, POPPUN!</span>
+              <h2>ナイス、だっそう！</h2>
+              <p id="result-message">つぎは、もっと遠くまで。</p>
+              <div class="result-distance">
+                <b id="result-distance">0</b><span>m</span>
+              </div>
+              <div class="result-stats">
+                <div>
+                  <span>小<span id="result-grade">3</span>の最高記録</span
+                  ><b><span id="result-best">0</span><small> m</small></b>
+                </div>
+                <div>
+                  <span>算数のせいかい</span
+                  ><b
+                    ><span id="result-correct">0</span
+                    ><small> / <span id="result-total">0</span>問</small></b
+                  >
+                </div>
+              </div>
+              <button class="primary-button" id="retry-button">
+                もう一度にげよう！ <span>↻</span></button
+              ><button class="text-button" id="home-button">
+                学年選択にもどる
+              </button>
+            </div>
+          </div>
+          <div class="rotate-notice" id="rotate-notice">
+            <span aria-hidden="true">▯ ↻</span><b>画面を横にして、冒険へ。</b>
+            <p>スマホは横向きにするとあそびやすいよ。</p>
+          </div>
+        </section>
+
+        <section class="how-to" aria-label="あそびかた">
+          <div class="how-title">
+            <span>HOW TO PLAY</span>
+            <h2>あそびかた</h2>
+          </div>
+          <div class="how-item">
+            <span class="instruction-icon keys" aria-hidden="true"
+              >↑<span>↓</span></span
+            >
+            <div>
+              <h3>上下だけで、かんたん。</h3>
+              <p>↑でジャンプ・上へ、↓で下へ。<br />スマホは上下にスワイプ！</p>
+            </div>
+          </div>
+          <div class="how-item">
+            <span class="instruction-icon math-icon" aria-hidden="true"
+              >×<small>÷</small></span
+            >
+            <div>
+              <h3>ひらめいたら、その道へ。</h3>
+              <p>
+                式が出たら、正しい答えの道をえらぼう。<br />金色に光る式には、いいことが…？
+              </p>
+            </div>
+          </div>
+          <div class="how-item">
+            <span class="instruction-icon escape-icon" aria-hidden="true"
+              >↗</span
+            >
+            <div>
+              <h3>めざせ、自己ベスト！</h3>
+              <p>
+                5回ミスすると追手につかまるよ。<br />何度でもチャレンジしよう。
+              </p>
+            </div>
+          </div>
+        </section>
+      </main>
+      <footer class="page-footer">
+        <span>© 2026 POPPUN’S GREAT ESCAPE</span
+        ><span
+          >まちがえても、冒険はつづく。<span class="footer-spark">✦</span></span
+        >
+      </footer>
+      <p id="storage-notice" class="storage-notice" hidden>
+        このブラウザでは記録を保存できません。今回の画面内では記録を表示できます。
+      </p>
+      <noscript
+        >このゲームをあそぶには、ブラウザの JavaScript
+        を有効にしてください。</noscript
+      >
+    </div>
+  </body>
+</html>
