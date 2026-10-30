@@ -24,6 +24,7 @@
       this.obstacles = [];
       this.obstacleTimer = C.obstacleInitialDelay;
       this.introBatIndex = 0;
+      this.patternsWithoutSpider = C.spiderMaxDryPatterns;
       // 最初の配置に必ず登場。その後も抽選の偏りで出なくならないようにする。
       this.patternsWithoutBat = C.batMaxDryPatterns;
       this.patternsSinceQuestion = 0;
@@ -43,7 +44,11 @@
     emit(type, detail = {}) {
       this.onEvent({ type, ...detail });
     }
+    syncLanes() {
+      if (this.distance >= C.threeChoiceDistance) this.player.topLane = 0;
+    }
     move(direction) {
+      this.syncLanes();
       if (this.mode !== "running") return;
       if (P.Physics.move(this.player, direction, this.question))
         this.emit("move", { direction });
@@ -94,6 +99,7 @@
     }
     beginQuestion() {
       if (this.question) return;
+      this.syncLanes();
       this.questionCount++;
       const count = this.distance >= C.threeChoiceDistance ? 3 : 2;
       const special =
@@ -130,7 +136,7 @@
       this.obstacleReadyAt = this.elapsed + C.questionSafetySeconds;
       this.questionReadyAt = this.elapsed + C.questionRestSeconds;
       // 3択の最上段は、問題を抜けたら中段へ安全に合流する。
-      if (this.player.lane === 0) {
+      if (this.player.lane === 0 && this.player.topLane !== 0) {
         this.player.lane = 1;
         this.player.grounded = false;
       }
@@ -180,6 +186,7 @@
       this.distance += (this.speed * dt) / C.pixelsPerMeter;
       this.shake = Math.max(0, this.shake - dt);
       this.flash = Math.max(0, this.flash - dt);
+      this.syncLanes();
       P.Physics.update(this.player, dt, this.question);
       if (this.question) {
         this.question.elapsed += dt;
@@ -209,11 +216,17 @@
             this.rng,
             this.patternsWithoutBat >= C.batMaxDryPatterns,
             this.generationStats,
-            C.introBatTypes[this.introBatIndex] || null,
+            this.player.topLane === 0 &&
+              this.patternsWithoutSpider >= C.spiderMaxDryPatterns
+              ? "spider"
+              : C.introBatTypes[this.introBatIndex] || null,
           );
           this.obstacles.push(...group);
           if (group.length) {
             this.emit("pattern", { group });
+            this.patternsWithoutSpider = group.some((o) => o.kind === "spider")
+              ? 0
+              : this.patternsWithoutSpider + 1;
             this.actionObstacles += group.length;
             if (
               group.some(

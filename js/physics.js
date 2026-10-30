@@ -5,6 +5,7 @@
   function createPlayer() {
     return {
       lane: 2,
+      topLane: 1,
       y: C.lanes[2],
       vy: 0,
       grounded: true,
@@ -25,7 +26,7 @@
       return true;
     }
     if (direction < 0 && player.grounded) {
-      player.lane = Math.max(1, player.lane - 1);
+      player.lane = Math.max(player.topLane ?? 1, player.lane - 1);
       player.vy = C.jumpVelocity;
       player.grounded = false;
       return true;

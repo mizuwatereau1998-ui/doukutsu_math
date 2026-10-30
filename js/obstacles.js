@@ -49,6 +49,32 @@
         : 0;
     return target + descent + Math.sin((o.age || 0) * 3.2 + o.seed * 6.28) * 5;
   }
+  function spiderPose(o) {
+    if (o.x > o.spiderStartX) return { y: C.spiderRoofY, phase: "idle" };
+    const elapsed = Math.max(0, (o.spiderStartX - o.x) / o.spiderRate);
+    const target = C.lanes[o.lane] - 27;
+    const w = C.spiderWarningSeconds,
+      d = C.spiderDropSeconds,
+      h = C.spiderHoldSeconds,
+      r = C.spiderRiseSeconds;
+    let y = C.spiderRoofY,
+      phase = "idle";
+    if (o.x <= o.spiderStartX && elapsed < w) {
+      phase = "warning";
+      y += (elapsed / w) * 12;
+    } else if (elapsed < w + d) {
+      phase = "drop";
+      const t = P.clamp((elapsed - w) / d, 0, 1);
+      y += (target - y) * t;
+    } else if (elapsed < w + d + h) {
+      phase = "hold";
+      y = target;
+    } else if (elapsed < w + d + h + r) {
+      phase = "rise";
+      y = target + (C.spiderRoofY - target) * ((elapsed - w - d - h) / r);
+    } else phase = "idle";
+    return { y, phase };
+  }
   function avoidance(player, obstacles, speed) {
     const near = obstacles
       .filter((o) => o.x + o.width >= C.playerX - 16)
@@ -59,6 +85,10 @@
       )[0];
     if (!near || (near.x - C.playerX) / (speed * speedFactor(near)) > 0.38)
       return 0;
+    if (near.kind === "spider")
+      return player.lane === near.lane ? (player.lane === 2 ? -1 : 1) : 0;
+    if (near.kind === "bat" && near.lane === 0)
+      return player.lane === 0 ? 1 : 0;
     if (near.kind === "stalactite" || (near.kind === "bat" && near.lane === 1))
       return player.lane < 2 ? 1 : 0;
     return near.lane === player.lane && player.grounded ? -1 : 0;
@@ -74,6 +104,7 @@
         C.startSpeed +
         (C.maxSpeed - C.startSpeed) *
           (1 - Math.exp(-d / C.speedGrowthDistance));
+      if (d >= C.threeChoiceDistance) p.topLane = 0;
       const direction = avoidance(p, list, speed);
       if (direction) P.Physics.move(p, direction, null);
       P.Physics.update(p, C.fixedStep, null);
@@ -113,8 +144,38 @@
     forceBat = false,
     requestedType = null,
   ) {
-    const lane = Math.max(1, player.lane),
-      other = lane === 1 ? 2 : 1;
+    const advancedLanes = distance >= C.threeChoiceDistance;
+    const lane = Math.max(advancedLanes ? 0 : 1, player.lane),
+      other = lane === 2 ? 1 : 2;
+    if (
+      advancedLanes &&
+      (requestedType === "spider" || rng() < C.spiderChance)
+    ) {
+      const s = create(distance, rng);
+      Object.assign(s, {
+        kind: "spider",
+        width: 36,
+        lane: rng() < 0.5 ? 1 : 2,
+        pattern: "spider-bat-hole",
+      });
+      const bat = {
+        ...create(distance, rng),
+        kind: "bat",
+        width: 36,
+        lane: 0,
+        batType: "normal",
+        pattern: s.pattern,
+      };
+      const rock = rng() < 0.4;
+      const hole = {
+        ...create(distance, rng),
+        kind: rock ? "stalactite" : "hole",
+        width: rock ? 72 : 100,
+        lane: rock ? 1 : lane,
+        pattern: s.pattern,
+      };
+      return [s, bat, hole];
+    }
     let type = requestedType;
     if (!type) {
       const roll = rng();
@@ -209,6 +270,10 @@
           (C.obstacleSpawnMinX - C.playerX) / rate,
         );
         o.x = C.playerX + eta * rate;
+        if (o.kind === "spider") {
+          o.spiderRate = rate;
+          o.spiderStartX = C.playerX + rate * C.spiderLeadSeconds;
+        }
         if (o.batType === "dive") {
           o.diveRate = rate;
           o.diveStartX = C.playerX + rate * C.batDiveLeadSeconds;
@@ -229,9 +294,12 @@
     }
     const o = create(distance, rng);
     Object.assign(o, {
-      kind: "bat",
+      kind: requestedType === "spider" ? "spider" : "bat",
       width: 36,
-      lane: Math.max(1, player.lane),
+      lane:
+        requestedType === "spider"
+          ? 1
+          : Math.max(distance >= C.threeChoiceDistance ? 0 : 1, player.lane),
       batType: requestedType || "normal",
       pattern: "safe",
     });
@@ -249,6 +317,13 @@
       C.playerX + 15 > obstacle.x &&
       C.playerX - 15 < obstacle.x + obstacle.width;
     if (!overlapsX) return false;
+    if (obstacle.kind === "spider") {
+      const y = spiderPose(obstacle).y;
+      return (
+        player.y > y - C.spiderRadius &&
+        player.y - C.playerRadius * 2 < y + C.spiderRadius
+      );
+    }
     if (obstacle.kind === "bat") {
       const y = batY(obstacle);
       return player.y > y - 12 && player.y - C.playerRadius * 2 < y + 12;
@@ -279,5 +354,6 @@
     createPattern,
     plan,
     templates,
+    spiderPose,
   });
 })();

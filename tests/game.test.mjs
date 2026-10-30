@@ -173,7 +173,7 @@ test("不正解は1段階後退し、特別問題の正解は1段階回復する
   game.beginQuestion();
   assert.equal(game.question.special, false);
 });
-test("3択は上下で1段ずつ全ての道に移動でき、正解後は通常の足場に合流", () => {
+test("3択は上下で1段ずつ全ての道に移動でき、解答後も最上段を維持", () => {
   const game = new P.Game({ rng: seeded() });
   game.start(3);
   game.distance = C.threeChoiceDistance;
@@ -191,7 +191,7 @@ test("3択は上下で1段ずつ全ての道に移動でき、正解後は通常
   assert.equal(game.player.lane, 2);
   game.player.lane = 0;
   game.resolveQuestion();
-  assert.ok(game.player.lane >= 1);
+  assert.equal(game.player.lane, 0);
 });
 test("距離に合わせて速度が上がり、判断時間は6秒から2秒になる", () => {
   const game = new P.Game();
@@ -238,21 +238,8 @@ for (const seed of [917, 1, 42, 305])
         if (game.player.lane !== target)
           game.move(game.player.lane > target ? -1 : 1);
       } else {
-        const near = game.obstacles
-          .filter((o) => o.x + o.width >= C.playerX - 16)
-          .sort((a, b) => a.x - b.x)[0];
-        if (
-          near &&
-          near.x - C.playerX < game.speed * P.Obstacles.speedFactor(near) * 0.38
-        ) {
-          if (
-            near.kind === "stalactite" ||
-            (near.kind === "bat" && near.lane === 1)
-          )
-            game.move(1);
-          else if (near.lane === game.player.lane && game.player.grounded)
-            game.move(-1);
-        }
+        const direction=P.Obstacles.avoidance(game.player,game.obstacles,game.speed);
+        if(direction)game.move(direction);
       }
       game.update(C.fixedStep);
       for (const obstacle of game.obstacles) seen.add(obstacle.kind);
@@ -490,25 +477,13 @@ for (const seed of [17, 81, 291, 832])
     g.nextQuestionDistance = Infinity;
     const seen = new Set();
     for (let i = 0; i < 90 / C.fixedStep; i++) {
-      const near = g.obstacles
-        .filter((o) => o.x + o.width >= C.playerX - 16)
-        .sort((a, b) => a.x - b.x)[0];
-      if (
-        near &&
-        near.x - C.playerX < g.speed * P.Obstacles.speedFactor(near) * 0.38
-      ) {
-        if (
-          near.kind === "stalactite" ||
-          (near.kind === "bat" && near.lane === 1)
-        )
-          g.move(1);
-        else if (near.lane === g.player.lane && g.player.grounded) g.move(-1);
-      }
+      const direction = P.Obstacles.avoidance(g.player, g.obstacles, g.speed);
+      if (direction) g.move(direction);
       g.update(C.fixedStep);
       for (const o of g.obstacles) seen.add(o.kind);
       assert.equal(g.misses, 0, `distance=${g.distance}`);
     }
-    assert.equal(seen.size, 3);
+    assert.equal(seen.size, 4);
   });
 
 test("序盤のパターンは単独と2連続を含み、中盤以降に急降下・群れ・3連続が増える", () => {
@@ -700,4 +675,94 @@ test("不可能な候補は複数の代替候補と単独候補まで検証し�
   assert.ok(
     P.Obstacles.plan(0, C.startSpeed, p, [], seeded(1), true).length > 0,
   );
+});
+
+test("900m以降は常設3段。通常ジャンプと下降で全段に到達し、問題後も最上段を保持", () => {
+  const g = new P.Game();
+  g.start(3);
+  g.distance = C.threeChoiceDistance;
+  g.syncLanes();
+  for (let lane = 1; lane >= 0; lane--) {
+    g.move(-1);
+    for (let i = 0; i < 120; i++) P.Physics.update(g.player, C.fixedStep, null);
+    assert.equal(g.player.lane, lane);
+    assert.equal(g.player.y, C.lanes[lane]);
+  }
+  g.beginQuestion();
+  g.player.lane = 0;
+  g.question.choices[0].value = g.question.answer;
+  g.resolveQuestion();
+  assert.equal(g.player.lane, 0);
+  g.move(1);
+  for (let i = 0; i < 90; i++) P.Physics.update(g.player, C.fixedStep, null);
+  assert.equal(g.player.lane, 1);
+  g.move(1);
+  for (let i = 0; i < 90; i++) P.Physics.update(g.player, C.fixedStep, null);
+  assert.equal(g.player.lane, 2);
+  g.distance = 0;
+  g.syncLanes();
+  assert.equal(g.player.topLane, 0);
+  g.start(3);
+  assert.equal(g.player.topLane, 1);
+});
+for (const lane of [1, 2])
+  test(`クモの全段階と本体だけの衝突 lane=${lane}`, () => {
+    const o = {
+      kind: "spider",
+      lane,
+      x: 310,
+      width: 36,
+      spiderRate: 500,
+      spiderStartX: 310,
+      age: 0,
+    };
+    for (const [time, phase] of [
+      [0.2, "warning"],
+      [0.6, "drop"],
+      [1, "hold"],
+      [2.2, "rise"],
+      [3, "idle"],
+    ]) {
+      o.spiderStartX = o.x + time * o.spiderRate;
+      const pose = P.Obstacles.spiderPose(o);
+      assert.equal(pose.phase, phase);
+      const p = P.Physics.createPlayer();
+      p.y = pose.y + 20;
+      assert.equal(P.Obstacles.hits(o, p), true);
+      p.y = pose.y - 40;
+      assert.equal(P.Obstacles.hits(o, p), false); // 糸と重なっても無傷
+      p.y = pose.y + 20;
+      p.invincible = 1;
+      assert.equal(P.Obstacles.hits(o, p), false);
+    }
+    o.spiderStartX = 810;
+    assert.equal(P.Obstacles.spiderPose(o).y, C.lanes[lane] - 27);
+  });
+test("常設3段ではクモを含む連続配置が十分生成され、最上段からも回避できる", () => {
+  const rng = seeded(504);
+  let spiders = 0,
+    topBats = 0;
+  for (const lane of [0, 1, 2])
+    for (let i = 0; i < 100; i++) {
+      const p = P.Physics.createPlayer();
+      p.topLane = 0;
+      p.lane = lane;
+      p.y = C.lanes[lane];
+      const group = P.Obstacles.plan(
+        3000,
+        440,
+        p,
+        [],
+        rng,
+        false,
+        null,
+        "spider",
+      );
+      assert.ok(group.length);
+      assert.ok(P.Obstacles.traversable(p, group, 3000));
+      if (group.some((o) => o.kind === "spider")) spiders++;
+      if (group.some((o) => o.kind === "bat" && o.lane === 0)) topBats++;
+    }
+  assert.ok(spiders >= 280);
+  assert.ok(topBats >= 250);
 });

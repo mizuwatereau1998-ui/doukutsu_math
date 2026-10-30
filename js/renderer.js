@@ -863,13 +863,60 @@
       );
       c.restore();
     }
+    spider(o, time) {
+      const c = this.ctx,
+        x = o.x + o.width / 2,
+        p = P.Obstacles.spiderPose(o);
+      c.save();
+      c.strokeStyle = p.phase === "warning" ? "#ffe2a4" : "#c4dedc";
+      c.lineWidth = p.phase === "warning" ? 2.5 : 1.4;
+      c.beginPath();
+      c.moveTo(x, 65);
+      c.lineTo(x, p.y);
+      c.stroke();
+      c.translate(
+        x + (p.phase === "warning" ? Math.sin(time * 65) * 3 : 0),
+        p.y,
+      );
+      c.strokeStyle = "#e5bc99";
+      c.lineWidth = 3;
+      c.lineCap = "round";
+      for (const side of [-1, 1])
+        for (let i = 0; i < 4; i++) {
+          const wave = Math.sin(time * 13 + i) * 3;
+          c.beginPath();
+          c.moveTo(side * 10, -8 + i * 5);
+          c.lineTo(side * (23 + i * 2), -18 + i * 9 + wave);
+          c.lineTo(side * (30 + i * 2), -10 + i * 10 + wave);
+          c.stroke();
+        }
+      this.ellipse(0, 0, 18, 19, "#b47688");
+      this.ellipse(0, -9, 14, 12, "#dca595");
+      this.ellipse(-6, -8, 4, 5, "#fff0bf");
+      this.ellipse(6, -8, 4, 5, "#fff0bf");
+      this.ellipse(-6, -7, 2, 3, "#433651");
+      this.ellipse(6, -7, 2, 3, "#433651");
+      if (p.phase === "warning") this.star(0, -32, 6, "#ffe2a4");
+      c.restore();
+    }
     tracks(game) {
       const c = this.ctx,
         q = game.question,
         scroll = game.distance * C.pixelsPerMeter;
-      const lanes = q?.choices.length === 3 ? [0, 1, 2] : [1, 2];
+      const preview = P.clamp(
+        (game.distance - (C.threeChoiceDistance - C.thirdLanePreviewMeters)) /
+          C.thirdLanePreviewMeters,
+        0,
+        1,
+      );
+      const lanes =
+        game.player.topLane === 0 || q?.choices.length === 3 || preview > 0
+          ? [0, 1, 2]
+          : [1, 2];
       // 足場の穴は塗りつぶしで隠すのではなく、実際に足場の区間を切り取る。
       for (const lane of lanes) {
+        c.save();
+        if (lane === 0 && game.player.topLane !== 0) c.globalAlpha = preview;
         const y = C.lanes[lane];
         const holes = game.obstacles
           .filter((o) => o.kind === "hole" && o.lane === lane)
@@ -893,8 +940,13 @@
           start = hole.x + hole.width;
         }
         if (start < 1300) this.terrain(start, y, 1300 - start, lane, scroll);
+        c.restore();
       }
       for (const o of game.obstacles) {
+        if (o.kind === "spider") {
+          this.spider(o, game.elapsed);
+          continue;
+        }
         if (o.kind === "bat") {
           this.bat(o);
           continue;
