@@ -60,7 +60,7 @@ with sync_playwright() as p:
     assert page.evaluate('PopEscape.game.distance') == distance
     page.click('#resume-button')
     # 最初の問題の予定時刻を早め、通常の更新処理で開始。
-    page.evaluate('PopEscape.game.nextQuestionDistance=0')
+    page.evaluate('PopEscape.game.nextQuestionDistance=0;PopEscape.game.questionReadyAt=0;PopEscape.game.obstacles=[]')
     page.wait_for_function('PopEscape.game.question !== null')
     assert page.evaluate('PopEscape.game.question.choices.length') == 2
     assert page.locator('#question-banner').is_visible()
@@ -130,6 +130,25 @@ with sync_playwright() as p:
     assert mp.evaluate('PopEscape.game.misses') == 1
     mp.evaluate('PopEscape.game.obstacles=[]')
     mp.wait_for_timeout(1300)
+    # 急降下型・群れ型も実際のCanvas描画に通す。
+    mp.evaluate("""() => {
+      const g=PopEscape.game, C=PopEscape.CONFIG;
+      g.distance=2500;
+      const rate=g.speed*C.batSpeedFactor;
+      g.obstacles=[{kind:'bat',batType:'dive',lane:2,width:36,seed:0,age:0,
+        x:800,diveRate:rate,diveStartX:805},
+        {kind:'bat',batType:'flock',lane:1,width:36,seed:0.3,age:0,x:1080},
+        {kind:'bat',batType:'flock',lane:2,width:36,seed:0.5,age:0,x:1390}];
+    }""")
+    mp.wait_for_timeout(100)
+    mp.screenshot(path='/tmp/poppun-dive-warning.png', full_page=True)
+    before_y=mp.evaluate('PopEscape.Obstacles.batY(PopEscape.game.obstacles[0])')
+    mp.wait_for_timeout(600)
+    after_y=mp.evaluate('PopEscape.Obstacles.batY(PopEscape.game.obstacles[0])')
+    assert after_y>before_y+15
+    mp.screenshot(path='/tmp/poppun-flock-dive.png', full_page=True)
+    mp.evaluate('PopEscape.game.obstacles=[]')
+    mp.wait_for_function('PopEscape.game.player.stumble===0')
     mp.evaluate('PopEscape.game.distance=1200;PopEscape.game.beginQuestion()')
     swipe(mp, 600, 250, -20)
     assert mp.evaluate('PopEscape.game.player.lane') == 1

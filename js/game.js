@@ -21,7 +21,8 @@
       this.chain = 0;
       this.player = P.Physics.createPlayer();
       this.obstacles = [];
-      this.obstacleTimer = 1.8;
+      this.obstacleTimer = C.obstacleInitialDelay;
+      this.patternsSinceQuestion = 0;
       this.nextQuestionDistance = C.questionIntervalMeters;
       this.questionReadyAt = 0;
       this.obstacleReadyAt = 0;
@@ -109,6 +110,7 @@
       this.total++;
       this.question = null;
       this.obstacleTimer = 0;
+      this.patternsSinceQuestion = 0;
       this.obstacleReadyAt = this.elapsed + C.questionSafetySeconds;
       this.questionReadyAt = this.elapsed + C.questionRestSeconds;
       // 3択の最上段は、問題を抜けたら中段へ安全に合流する。
@@ -175,23 +177,37 @@
         this.player.stumble <= 0
       ) {
         this.beginQuestion();
-      } else if (this.elapsed >= this.obstacleReadyAt && !this.nearQuestion()) {
+      } else if (
+        this.elapsed >= this.obstacleReadyAt &&
+        !this.nearQuestion() &&
+        (this.patternsSinceQuestion === 0 ||
+          this.distance < this.nextQuestionDistance - C.questionSafetyMeters)
+      ) {
         this.obstacleTimer -= dt;
         if (this.obstacleTimer <= 0) {
-          const obstacle = P.Obstacles.create(this.distance, this.rng);
-          // 速いコウモリが先行する障害物に追いついて、同時に道を塞ぐのを防ぐ。
-          const rate = P.Obstacles.speedFactor(obstacle) * this.speed;
-          for (const previous of this.obstacles) {
-            const eta =
-              (previous.x + previous.width - C.playerX) /
-              (this.speed * P.Obstacles.speedFactor(previous));
-            if (eta >= 0)
-              obstacle.x = Math.max(
-                obstacle.x,
-                C.playerX + rate * (eta + C.obstacleMinEncounterGap),
-              );
+          const group = P.Obstacles.plan(
+            this.distance,
+            this.speed,
+            this.player,
+            this.obstacles,
+            this.rng,
+          );
+          this.obstacles.push(...group);
+          if (group.length) {
+            this.patternsSinceQuestion++;
+            // 連続配置を途中で消さず、最後の障害物の後に算数用の安全区間を置く。
+            const tail = Math.max(
+              ...group.map(
+                (o) =>
+                  (o.x + o.width - C.playerX) /
+                  (this.speed * P.Obstacles.speedFactor(o)),
+              ),
+            );
+            this.questionReadyAt = Math.max(
+              this.questionReadyAt,
+              this.elapsed + tail + C.questionSafetySeconds,
+            );
           }
-          this.obstacles.push(obstacle);
           const difficulty = P.clamp(
             this.distance / C.shortestTimeDistance,
             0,
@@ -200,7 +216,8 @@
           this.obstacleTimer =
             C.obstacleIntervalStart +
             (C.obstacleIntervalEnd - C.obstacleIntervalStart) * difficulty +
-            this.rng() * 0.6;
+            this.rng() * 0.35;
+          if (!group.length) this.obstacleTimer = 0.4;
         }
       }
       // 問題直前の安全区間では、既存の飛来物も含めて取り除く。

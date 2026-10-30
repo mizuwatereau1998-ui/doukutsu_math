@@ -355,7 +355,7 @@ test("PNGと図形は同じ変形を受け、描画を繰り返してもゲー�
 });
 
 test("150mの節目で出題し、重複せず、終了後は休止区間を守って遅延出題する", () => {
-  const g = new P.Game();
+  const g = new P.Game({ rng: seeded(205) });
   g.start(3);
   g.distance = 149;
   g.update(C.fixedStep);
@@ -370,11 +370,16 @@ test("150mの節目で出題し、重複せず、終了後は休止区間を守�
   assert.equal(g.question, question);
   g.distance = 610;
   g.player.lane = answerLane(g);
+  g.player.y = C.lanes[g.player.lane];
   g.resolveQuestion();
   const ended = g.elapsed;
-  advance(g, C.questionRestSeconds - 0.1);
-  assert.equal(g.question, null);
-  advance(g, 0.2);
+  for (let i = 0; i < 20 / C.fixedStep && !g.question; i++) {
+    if (g.elapsed - ended < C.questionRestSeconds - C.fixedStep)
+      assert.equal(g.question, null);
+    const direction = P.Obstacles.avoidance(g.player, g.obstacles, g.speed);
+    if (direction) g.move(direction);
+    g.update(C.fixedStep);
+  }
   assert.ok(g.question);
   assert.ok(g.elapsed - ended >= C.questionRestSeconds);
   assert.equal(g.questionCount, 2);
@@ -382,7 +387,7 @@ test("150mの節目で出題し、重複せず、終了後は休止区間を守�
   assert.ok(g.nextQuestionDistance > g.distance); // 通過済み問題の連続消化をしない
 });
 test("問題直前・問題中・直後の安全区間にはコウモリも残らない", () => {
-  const g = new P.Game();
+  const g = new P.Game({ rng: seeded(912) });
   g.start(3);
   g.distance = 150 - C.questionSafetyMeters;
   g.obstacles = [
@@ -393,6 +398,7 @@ test("問題直前・問題中・直後の安全区間にはコウモリも残�
   assert.equal(g.obstacles.length, 0);
   g.beginQuestion();
   g.player.lane = answerLane(g);
+  g.player.y = C.lanes[g.player.lane];
   g.resolveQuestion();
   advance(g, C.questionSafetySeconds - 0.05);
   assert.equal(g.obstacles.length, 0);
@@ -490,3 +496,107 @@ for (const seed of [17, 81, 291, 832])
     }
     assert.equal(seen.size, 3);
   });
+
+test("序盤のパターンは単独と2連続を含み、中盤以降に急降下・群れ・3連続が増える", () => {
+  const rng = seeded(201),
+    player = P.Physics.createPlayer();
+  const early = new Set(),
+    late = new Set();
+  for (let i = 0; i < 500; i++) {
+    const a = P.Obstacles.createPattern(0, player, rng);
+    early.add(a.length);
+    assert.ok(a.length <= 2 && a.every((o) => o.kind !== "bat"));
+    const b = P.Obstacles.createPattern(6000, player, rng);
+    late.add(b.length);
+    for (const o of b) if (o.kind === "bat") late.add(o.batType);
+  }
+  assert.ok(early.has(1) && early.has(2));
+  for (const type of [1, 2, 3, "normal", "dive", "flock"])
+    assert.ok(late.has(type));
+});
+test("予備動作後に急降下し、通過前に狙った高さへ落ち着く。描画と衝突面は共通", () => {
+  const speed = 500,
+    rate = speed * C.batSpeedFactor;
+  const o = {
+    kind: "bat",
+    batType: "dive",
+    lane: 2,
+    width: 36,
+    seed: 0,
+    age: 0,
+    diveRate: rate,
+    diveStartX: C.playerX + rate * C.batDiveLeadSeconds,
+  };
+  o.x = o.diveStartX;
+  const high = P.Obstacles.batY(o);
+  o.x -= rate * (C.batDiveWarnSeconds - 0.01);
+  assert.equal(P.Obstacles.diveProgress(o), 0);
+  assert.equal(P.Obstacles.batY(o), high);
+  o.x = o.diveStartX - rate * (C.batDiveWarnSeconds + C.batDiveSeconds / 2);
+  assert.ok(P.Obstacles.batY(o) > high + 40);
+  o.x = C.playerX;
+  assert.equal(P.Obstacles.diveProgress(o), 1);
+  assert.equal(P.Obstacles.batY(o), C.lanes[2] - 27);
+  const p = P.Physics.createPlayer();
+  assert.ok(P.Obstacles.hits(o, p));
+});
+test("経路検証は不可能な同時封鎖を拒否し、元の物理状態を変更しない", () => {
+  const p = P.Physics.createPlayer();
+  const blockers = [
+    { kind: "stalactite", lane: 1, x: 900, width: 1000, seed: 0 },
+    { kind: "hole", lane: 2, x: 900, width: 1000, seed: 0 },
+  ];
+  const before = JSON.stringify([p, blockers]);
+  assert.equal(P.Obstacles.traversable(p, blockers, 0), false);
+  assert.equal(JSON.stringify([p, blockers]), before);
+  assert.ok(
+    P.Obstacles.gapSeconds() >=
+      (2 * Math.abs(C.jumpVelocity)) / C.gravity + C.obstacleReactionSeconds,
+  );
+});
+for (const state of ["bottom", "upper", "jump", "fall"])
+  test(`現在の状態=${state}: 実際のジャンプ・下降を考慮したパターンだけを採用`, () => {
+    const rng = seeded(705),
+      p = P.Physics.createPlayer();
+    if (state === "upper") {
+      p.lane = 1;
+      p.y = C.lanes[1];
+    }
+    if (state === "jump") P.Physics.move(p, -1, null);
+    if (state === "fall") {
+      p.lane = 2;
+      p.y = 480;
+      p.vy = 200;
+      p.grounded = false;
+    }
+    let accepted = 0;
+    const variants = new Set();
+    for (const distance of [0, 500, 1300, 2000, 6000]) {
+      const speed =
+        C.startSpeed +
+        (C.maxSpeed - C.startSpeed) *
+          (1 - Math.exp(-distance / C.speedGrowthDistance));
+      for (let i = 0; i < 30; i++) {
+        const group = P.Obstacles.plan(distance, speed, p, [], rng);
+        if (!group.length) continue;
+        accepted++;
+        assert.ok(group.every((o) => o.x >= C.obstacleSpawnX - 1e-6));
+        assert.ok(P.Obstacles.traversable(p, group, distance));
+        for (const o of group) if (o.kind === "bat") variants.add(o.batType);
+      }
+    }
+    assert.ok(accepted > 80);
+    assert.ok(variants.has("dive") && variants.has("flock"));
+  });
+test("開始直後に衝突せず、算数開始時に群れ・急降下を含む全パターンを片付ける", () => {
+  const g = new P.Game({ rng: seeded(93) });
+  g.start(3);
+  advance(g, 3);
+  assert.equal(g.misses, 0);
+  g.distance = 6000;
+  g.obstacles = P.Obstacles.plan(g.distance, g.speed, g.player, [], seeded(18));
+  g.beginQuestion();
+  assert.equal(g.obstacles.length, 0);
+  advance(g, 0.5);
+  assert.equal(g.obstacles.length, 0);
+});

@@ -792,6 +792,15 @@
         : Math.sin((obstacle.age || 0) * 18 + obstacle.seed * 6.28);
       c.save();
       c.translate(x, y);
+      const dive = P.Obstacles.diveProgress(obstacle);
+      if (obstacle.batType === "dive") {
+        const warning = obstacle.x <= obstacle.diveStartX && dive === 0;
+        if (warning) {
+          this.star(0, -34, 8, "#ffdb7b");
+          c.scale(1.12, 0.88);
+        }
+        c.rotate(dive > 0 && dive < 1 ? -0.38 : 0);
+      }
       c.rotate(Math.sin((obstacle.age || 0) * 3) * 0.05);
       // 羽先より小さい胴体だけが衝突対象。明るい輪郭で洞窟から分離する。
       for (const side of [-1, 1]) {
@@ -808,8 +817,12 @@
             [16, 7],
             [8, 13],
           ],
-          "#67517e",
-          "#c3acd1",
+          obstacle.batType === "dive"
+            ? "#80526d"
+            : obstacle.batType === "flock"
+              ? "#4b6b87"
+              : "#67517e",
+          obstacle.batType === "dive" ? "#f3bb9a" : "#c3acd1",
           1.5,
         );
         c.strokeStyle = "#9d81b4";
