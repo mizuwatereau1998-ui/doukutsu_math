@@ -19,12 +19,15 @@
       this.total = 0;
       this.questionCount = 0;
       this.chain = 0;
+      this.generationStats = { rejected: 0, fallback: 0 };
       this.player = P.Physics.createPlayer();
       this.obstacles = [];
       this.obstacleTimer = C.obstacleInitialDelay;
+      this.introBatIndex = 0;
       // 最初の配置に必ず登場。その後も抽選の偏りで出なくならないようにする。
       this.patternsWithoutBat = C.batMaxDryPatterns;
       this.patternsSinceQuestion = 0;
+      this.actionObstacles = 0;
       this.nextQuestionDistance = C.questionIntervalMeters;
       this.questionReadyAt = 0;
       this.obstacleReadyAt = 0;
@@ -76,7 +79,17 @@
     nearQuestion() {
       return (
         this.distance >= this.nextQuestionDistance - C.questionSafetyMeters &&
-        this.elapsed >= this.questionReadyAt - C.questionSafetySeconds
+        this.actionObstacles >= C.actionMinimumObstacles
+      );
+    }
+    queueSeconds() {
+      return Math.max(
+        0,
+        ...this.obstacles.map(
+          (o) =>
+            (o.x + o.width - C.playerX) /
+            (this.speed * P.Obstacles.speedFactor(o)),
+        ),
       );
     }
     beginQuestion() {
@@ -113,6 +126,7 @@
       this.question = null;
       this.obstacleTimer = 0;
       this.patternsSinceQuestion = 0;
+      this.actionObstacles = 0;
       this.obstacleReadyAt = this.elapsed + C.questionSafetySeconds;
       this.questionReadyAt = this.elapsed + C.questionRestSeconds;
       // 3択の最上段は、問題を抜けたら中段へ安全に合流する。
@@ -174,6 +188,7 @@
       } else if (
         this.distance >= this.nextQuestionDistance &&
         this.elapsed >= this.questionReadyAt &&
+        this.obstacles.every((o) => o.x + o.width < C.playerX - 20) &&
         this.player.grounded &&
         this.player.invincible <= 0 &&
         this.player.stumble <= 0
@@ -182,8 +197,7 @@
       } else if (
         this.elapsed >= this.obstacleReadyAt &&
         !this.nearQuestion() &&
-        (this.patternsSinceQuestion === 0 ||
-          this.distance < this.nextQuestionDistance - C.questionSafetyMeters)
+        this.queueSeconds() <= C.patternQueueSeconds
       ) {
         this.obstacleTimer -= dt;
         if (this.obstacleTimer <= 0) {
@@ -194,9 +208,21 @@
             this.obstacles,
             this.rng,
             this.patternsWithoutBat >= C.batMaxDryPatterns,
+            this.generationStats,
+            C.introBatTypes[this.introBatIndex] || null,
           );
           this.obstacles.push(...group);
           if (group.length) {
+            this.emit("pattern", { group });
+            this.actionObstacles += group.length;
+            if (
+              group.some(
+                (o) =>
+                  o.kind === "bat" &&
+                  o.batType === C.introBatTypes[this.introBatIndex],
+              )
+            )
+              this.introBatIndex++;
             this.patternsWithoutBat = group.some((o) => o.kind === "bat")
               ? 0
               : this.patternsWithoutBat + 1;
@@ -227,7 +253,7 @@
         }
       }
       // 問題直前の安全区間では、既存の飛来物も含めて取り除く。
-      if (!this.question && this.nearQuestion()) this.obstacles = [];
+      // 近づいている障害物を消さず、通過し終わってから出題する。
       for (const obstacle of this.obstacles) {
         obstacle.x -= this.speed * P.Obstacles.speedFactor(obstacle) * dt;
         obstacle.age = (obstacle.age || 0) + dt;

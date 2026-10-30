@@ -96,76 +96,93 @@
       drop + C.obstacleReactionSeconds,
     );
   }
+  // A〜Fは「上へ→下へ→上へ」を作る設計済みのパターン。
+  const templates = Object.freeze({
+    A: ["hole", "batOther"],
+    B: ["stalactite", "holeLow"],
+    C: ["bat", "stalactite"],
+    D: ["hole", "batOther", "holeLow"],
+    E: ["holeLow", "batHigh", "holeLow"],
+    F: ["dive", "holeOther", "hole"],
+    S: ["bat"],
+  });
   function createPattern(
     distance,
     player,
     rng = Math.random,
     forceBat = false,
+    requestedType = null,
   ) {
-    const first = create(distance, rng);
-    if (forceBat && distance >= C.batStartDistance) {
-      first.kind = "bat";
-      first.width = 36;
-    }
-    first.lane = first.kind === "stalactite" ? 1 : Math.max(1, player.lane);
-    first.batType = "normal";
-    const pattern = [first];
-    if (first.kind === "bat") {
+    const lane = Math.max(1, player.lane),
+      other = lane === 1 ? 2 : 1;
+    let type = requestedType;
+    if (!type) {
       const roll = rng();
-      if (distance >= C.batFlockDistance && roll < C.batFlockChance) {
-        const count =
-          distance >= C.patternTripleDistance && rng() < 0.5 ? 3 : 2;
-        for (let i = 0; i < count; i++) {
-          const o = i === 0 ? first : create(distance, rng);
-          Object.assign(o, {
-            kind: "bat",
-            width: 36,
-            batType: "flock",
-            lane: i % 2 ? (first.lane === 1 ? 2 : 1) : first.lane,
-            groupIndex: i,
-          });
-          if (i) pattern.push(o);
-        }
-        return pattern;
-      }
-      const flockCutoff = distance >= C.batFlockDistance ? C.batFlockChance : 0;
-      if (
-        distance >= C.batDiveDistance &&
-        roll >= flockCutoff &&
-        roll < flockCutoff + C.batDiveChance
-      )
-        first.batType = "dive";
+      type =
+        distance >= C.batFlockDistance && roll < C.batFlockChance
+          ? "flock"
+          : distance >= C.batDiveDistance &&
+              roll < C.batFlockChance + C.batDiveChance
+            ? "dive"
+            : "normal";
     }
-    if (rng() < C.patternDoubleChance) {
-      // 上へ避けた後に下降、下降後にジャンプ、という交互の判断を中心に。
-      const second = create(distance, rng);
-      if (
-        first.kind === "stalactite" ||
-        (first.kind === "bat" && first.lane === 1)
-      )
-        Object.assign(second, {
-          kind: "hole",
-          lane: 2,
-          width: Math.min(130, 92 + distance / 120),
-        });
-      else Object.assign(second, { kind: "stalactite", lane: 1, width: 72 });
-      pattern.push(second);
-      const tripleChance = P.clamp(
-        (distance - C.patternTripleDistance) / 3000,
-        0,
+    function make(token) {
+      const o = create(distance, rng);
+      Object.assign(o, {
+        kind: token.startsWith("hole")
+          ? "hole"
+          : token === "stalactite"
+            ? "stalactite"
+            : "bat",
+        lane:
+          token === "stalactite" || token === "batHigh"
+            ? 1
+            : token === "holeLow"
+              ? 2
+              : token === "holeOther" || token === "batOther"
+                ? other
+                : lane,
+      });
+      o.width =
+        o.kind === "bat"
+          ? 36
+          : o.kind === "stalactite"
+            ? 72
+            : Math.min(120, 92 + distance / 160);
+      o.batType =
+        token === "dive" ? "dive" : type === "flock" ? "normal" : type;
+      return o;
+    }
+    if (type === "flock" && distance >= C.batFlockDistance) {
+      const count = distance > 1200 && rng() < 0.5 ? 3 : 2;
+      return Array.from({ length: count }, (_, i) => ({
+        ...make("bat"),
+        lane: i % 2 ? other : lane,
+        batType: "flock",
+        groupIndex: i,
+        pattern: "flock",
+      }));
+    }
+    const advanced =
+      rng() <
+      Math.min(
         C.patternTripleChanceMax,
+        0.25 + Math.max(0, distance - C.patternTripleDistance) / 4000,
       );
-      if (rng() < tripleChance) {
-        const third = create(distance, rng);
-        Object.assign(third, {
-          kind: second.kind === "hole" ? "stalactite" : "hole",
-          lane: second.kind === "hole" ? 1 : 2,
-          width: second.kind === "hole" ? 72 : 110,
-        });
-        pattern.push(third);
-      }
+    let keys = advanced ? ["D", "E", "F"] : ["A", "B", "C"];
+    if (requestedType || forceBat) keys = advanced ? ["C", "F"] : ["C"];
+    else if (create(distance, rng).kind !== "bat") keys = ["B"];
+    const key =
+      rng() > C.patternDoubleChance && !requestedType
+        ? "S"
+        : keys[Math.floor(rng() * keys.length)];
+    const group = templates[key].map(make);
+    // 導入では必ず指定した種類を含める。回避検証は通常配置と共通。
+    if (requestedType) {
+      const bat = group.find((o) => o.kind === "bat");
+      if (bat) bat.batType = requestedType;
     }
-    return pattern;
+    return group.map((o) => ({ ...o, pattern: key }));
   }
   function plan(
     distance,
@@ -174,26 +191,57 @@
     existing,
     rng = Math.random,
     forceBat = false,
+    diagnostics = null,
+    requestedType = null,
   ) {
-    const group = createPattern(distance, player, rng, forceBat),
-      gap = gapSeconds();
-    let eta = 0;
-    for (const o of existing)
-      eta = Math.max(
-        eta,
-        (o.x + o.width - C.playerX) / (speed * speedFactor(o)) + gap,
-      );
-    for (const o of group) {
-      const rate = speed * speedFactor(o);
-      eta = Math.max(eta, (C.obstacleSpawnX - C.playerX) / rate);
-      o.x = C.playerX + eta * rate;
-      if (o.batType === "dive") {
-        o.diveRate = rate;
-        o.diveStartX = C.playerX + rate * C.batDiveLeadSeconds;
+    function place(group) {
+      let eta = 0;
+      for (const o of existing)
+        eta = Math.max(
+          eta,
+          (o.x + o.width - C.playerX) / (speed * speedFactor(o)) + gapSeconds(),
+        );
+      for (const o of group) {
+        const rate = speed * speedFactor(o);
+        eta = Math.max(
+          eta,
+          C.obstacleLeadSeconds,
+          (C.obstacleSpawnMinX - C.playerX) / rate,
+        );
+        o.x = C.playerX + eta * rate;
+        if (o.batType === "dive") {
+          o.diveRate = rate;
+          o.diveStartX = C.playerX + rate * C.batDiveLeadSeconds;
+        }
+        eta += o.width / rate + gapSeconds();
       }
-      eta += o.width / rate + gap;
+      return group;
     }
-    return traversable(player, [...existing, ...group], distance) ? group : [];
+    for (let attempt = 0; attempt < C.patternAttempts; attempt++) {
+      const group = place(
+        createPattern(distance, player, rng, forceBat, requestedType),
+      );
+      if (traversable(player, [...existing, ...group], distance)) {
+        if (diagnostics && attempt) diagnostics.fallback++;
+        return group;
+      }
+      if (diagnostics) diagnostics.rejected++;
+    }
+    const o = create(distance, rng);
+    Object.assign(o, {
+      kind: "bat",
+      width: 36,
+      lane: Math.max(1, player.lane),
+      batType: requestedType || "normal",
+      pattern: "safe",
+    });
+    const fallback = place([o]);
+    if (traversable(player, [...existing, ...fallback], distance)) {
+      if (diagnostics) diagnostics.fallback++;
+      return fallback;
+    }
+    if (diagnostics) diagnostics.rejected++;
+    return [];
   }
   function hits(obstacle, player) {
     if (obstacle.hit || player.invincible > 0) return false;
@@ -230,5 +278,6 @@
     gapSeconds,
     createPattern,
     plan,
+    templates,
   });
 })();

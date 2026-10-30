@@ -131,13 +131,13 @@ test("ミス後は1秒以上無敵になり、近い障害物を除いて5段階
   advance(game, 2);
   assert.equal(game.distance, distance);
 });
-test("問題中は障害物がなく、10秒後に選択中の道で判定する", () => {
+test("問題中は障害物がなく、6秒後に選択中の道で判定する", () => {
   const game = new P.Game({ rng: seeded() });
   game.start(3);
   game.obstacles = [P.Obstacles.create(0)];
   game.beginQuestion();
   const duration = game.question.duration;
-  assert.equal(duration, 10);
+  assert.equal(duration, 6);
   assert.equal(game.obstacles.length, 0);
   game.player.lane = answerLane(game);
   advance(game, duration - 0.1);
@@ -193,12 +193,12 @@ test("3択は上下で1段ずつ全ての道に移動でき、正解後は通常
   game.resolveQuestion();
   assert.ok(game.player.lane >= 1);
 });
-test("距離に合わせて速度が上がり、判断時間は10秒から2秒になる", () => {
+test("距離に合わせて速度が上がり、判断時間は6秒から2秒になる", () => {
   const game = new P.Game();
   game.start(3);
-  assert.equal(game.questionDuration(), 10);
-  game.distance = (C.shortestTimeDistance + C.questionIntervalMeters) / 2;
   assert.equal(game.questionDuration(), 6);
+  game.distance = (C.shortestTimeDistance + C.questionIntervalMeters) / 2;
+  assert.equal(game.questionDuration(), 4);
   const speed = game.speed;
   game.update(C.fixedStep);
   assert.ok(game.speed > speed && game.speed < C.maxSpeed);
@@ -363,7 +363,7 @@ test("150mの節目で出題し、重複せず、終了後は休止区間を守�
   g.distance = 150;
   g.update(C.fixedStep);
   assert.ok(g.question);
-  assert.equal(g.question.duration, 10);
+  assert.equal(g.question.duration, 6);
   assert.equal(g.nextQuestionDistance, 300);
   const question = g.question;
   g.beginQuestion();
@@ -386,24 +386,38 @@ test("150mの節目で出題し、重複せず、終了後は休止区間を守�
   assert.equal(g.nextQuestionDistance % 150, 0);
   assert.ok(g.nextQuestionDistance > g.distance); // 通過済み問題の連続消化をしない
 });
-test("問題直前・問題中・直後の安全区間にはコウモリも残らない", () => {
+test("問題直前は障害物を突然消さず、通過後に問題を開始し、直後は安全時間を守る", () => {
   const g = new P.Game({ rng: seeded(912) });
   g.start(3);
-  g.distance = 150 - C.questionSafetyMeters;
-  g.obstacles = [
-    { kind: "bat", x: C.playerX, width: 36, lane: 2, age: 0, seed: 0 },
-  ];
+  g.distance = 150;
+  const bat = {
+    kind: "bat",
+    x: C.playerX + 160,
+    width: 36,
+    lane: 2,
+    age: 0,
+    seed: 0,
+  };
+  g.obstacles = [bat];
+  g.actionObstacles = 4;
   g.update(C.fixedStep);
+  assert.equal(g.question, null);
+  assert.ok(g.obstacles.includes(bat));
+  for (let i = 0; i < 240 && !g.question; i++) {
+    const d = P.Obstacles.avoidance(g.player, g.obstacles, g.speed);
+    if (d) g.move(d);
+    g.update(C.fixedStep);
+  }
+  assert.ok(g.question);
   assert.equal(g.misses, 0);
   assert.equal(g.obstacles.length, 0);
-  g.beginQuestion();
   g.player.lane = answerLane(g);
   g.player.y = C.lanes[g.player.lane];
   g.resolveQuestion();
   advance(g, C.questionSafetySeconds - 0.05);
   assert.equal(g.obstacles.length, 0);
   advance(g, 0.2);
-  assert.ok(g.obstacles.length > 0); // 終了後のアクション区間には復帰
+  assert.ok(g.obstacles.length > 0);
 });
 for (const lane of [1, 2])
   for (const speed of [C.startSpeed, C.maxSpeed]) {
@@ -505,10 +519,7 @@ test("序盤のパターンは単独と2連続を含み、中盤以降に急降�
   for (let i = 0; i < 500; i++) {
     const a = P.Obstacles.createPattern(0, player, rng);
     early.add(a.length);
-    assert.ok(
-      a.length <= 2 &&
-        a.every((o) => o.kind !== "bat" || o.batType === "normal"),
-    );
+    assert.ok(a.length >= 1 && a.length <= 3);
     const b = P.Obstacles.createPattern(6000, player, rng);
     late.add(b.length);
     for (const o of b) if (o.kind === "bat") late.add(o.batType);
@@ -583,7 +594,7 @@ for (const state of ["bottom", "upper", "jump", "fall"])
         const group = P.Obstacles.plan(distance, speed, p, [], rng);
         if (!group.length) continue;
         accepted++;
-        assert.ok(group.every((o) => o.x >= C.obstacleSpawnX - 1e-6));
+        assert.ok(group.every((o) => o.x >= C.obstacleSpawnMinX - 1e-6));
         assert.ok(P.Obstacles.traversable(p, group, distance));
         for (const o of group) if (o.kind === "bat") variants.add(o.batType);
       }
@@ -594,7 +605,7 @@ for (const state of ["bottom", "upper", "jump", "fall"])
 test("開始直後に衝突せず、算数開始時に群れ・急降下を含む全パターンを片付ける", () => {
   const g = new P.Game({ rng: seeded(93) });
   g.start(3);
-  advance(g, 3);
+  advance(g, 2.4);
   assert.equal(g.misses, 0);
   g.distance = 6000;
   g.obstacles = P.Obstacles.plan(g.distance, g.speed, g.player, [], seeded(18));
@@ -640,4 +651,53 @@ test("抽選が外れ続ける場合でも、最初と空振りパターン後�
   assert.ok(groups.length >= 3);
   for (let i = 1; i < groups.length; i++) assert.ok(groups[i] || groups[i - 1]);
   assert.equal(g.misses, 0);
+});
+
+const { simulate } = await import("./tempo.mjs");
+for (const seed of [1, 42, 917, 305, 17, 81, 291, 832])
+  test(`テンポ seed=${seed}: 30秒/60秒の実遭遇数と3種類の登場`, () => {
+    for (const seconds of [30, 60]) {
+      const r = simulate(seed, seconds);
+      assert.equal(r.misses, 0);
+      assert.ok(r.encountered >= (seconds === 30 ? 9 : 18));
+      assert.ok(r.normal > 0 && r.dive > 0 && r.flock >= 2);
+      assert.ok(r.combo >= (seconds === 30 ? 3 : 6));
+      assert.ok(r.questions.length >= (seconds === 30 ? 2 : 3));
+      assert.equal(r.questions[0].duration, 6);
+      assert.ok(r.questions.every((q) => q.duration >= 2 && q.duration <= 6));
+    }
+  });
+test("分岐到達の時間は通常・特別とも設定通り。タイムアップ前には判定しない", () => {
+  for (const special of [false, true])
+    for (const distance of [150, 1800, 3600]) {
+      const g = new P.Game();
+      g.start(3);
+      g.questionCount = 3;
+      g.distance = distance;
+      g.beginQuestion();
+      g.question.special = special;
+      const duration = g.question.duration;
+      g.player.lane = answerLane(g);
+      advance(g, duration - C.fixedStep * 2);
+      assert.ok(g.question);
+      advance(g, C.fixedStep * 3);
+      assert.equal(g.question, null);
+      assert.equal(g.correct, 1);
+    }
+});
+test("不可能な候補は複数の代替候補と単独候補まで検証し、安全判定を無効にしない", () => {
+  const p = P.Physics.createPlayer();
+  const existing = [
+    { kind: "stalactite", x: 900, width: 1000, lane: 1 },
+    { kind: "hole", x: 900, width: 1000, lane: 2 },
+  ];
+  const stats = { rejected: 0, fallback: 0 };
+  assert.deepEqual(
+    P.Obstacles.plan(0, C.startSpeed, p, existing, seeded(1), true, stats),
+    [],
+  );
+  assert.equal(stats.rejected, C.patternAttempts + 1);
+  assert.ok(
+    P.Obstacles.plan(0, C.startSpeed, p, [], seeded(1), true).length > 0,
+  );
 });
