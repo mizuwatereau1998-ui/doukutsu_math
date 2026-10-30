@@ -258,3 +258,83 @@ for (const seed of [917, 1, 42, 305])
     assert.ok(game.correct >= 6);
     assert.ok(game.distance > 3600);
   });
+
+// 描画モジュールはDOMを作らず読み込める。物理から独立した見た目を検証。
+await import("../js/renderer.js");
+test("走行は距離に連動して蹴り出し・弾み・接地し、空中と転倒は別の姿勢になる", () => {
+  const g = new P.Game();
+  g.start(3);
+  const contact = P.Visual.pose(g);
+  assert.ok(contact.sy < 1 && contact.sx > 1 && contact.angle > 0);
+  g.distance = 48 / C.pixelsPerMeter;
+  const hop = P.Visual.pose(g);
+  assert.ok(hop.lift > 5 && hop.sy > 1);
+  const before = JSON.stringify(g);
+  P.Visual.pose(g, 0.5);
+  assert.equal(JSON.stringify(g), before);
+  g.player.grounded = false;
+  g.player.vy = -500;
+  assert.equal(P.Visual.pose(g).mode, "jump");
+  g.player.vy = 500;
+  assert.equal(P.Visual.pose(g).mode, "fall");
+  g.player.stumble = 0.3;
+  assert.equal(P.Visual.pose(g).mode, "stumble");
+  assert.equal(P.Visual.pose(g, 0, true).lift, 0);
+});
+test("岩盤の装飾は障害物と同じ移動量を保ち、背景は遠いほど遅い", () => {
+  for (const speed of [C.startSpeed, C.maxSpeed]) {
+    const scroll = 1500,
+      delta = speed / 60;
+    const a = P.Visual.worldX(10, 160, scroll);
+    const b = P.Visual.worldX(10, 160, scroll + delta);
+    assert.ok(Math.abs(a - b - delta) < 1e-9);
+  }
+  const r = P.Visual.parallax;
+  assert.ok(
+    r.far < r.middle &&
+      r.middle < r.near &&
+      r.near < r.ground &&
+      r.ground < r.foreground,
+  );
+});
+test("PNGと図形は同じ変形を受け、描画を繰り返してもゲーム状態を変更しない", () => {
+  const calls = [];
+  const ctx = new Proxy(
+    {},
+    {
+      get:
+        (_, key) =>
+        (...args) => {
+          if (["translate", "rotate", "scale", "drawImage"].includes(key))
+            calls.push([key, ...args]);
+          if (key === "createLinearGradient" || key === "createRadialGradient")
+            return { addColorStop() {} };
+        },
+      set: () => true,
+    },
+  );
+  const renderer = Object.create(P.Renderer.prototype);
+  Object.assign(renderer, {
+    ctx,
+    canvas: { width: 1280, height: 720 },
+    images: {},
+    reducedMotion: { matches: false },
+  });
+  const g = new P.Game();
+  g.start(3);
+  g.distance = 100;
+  const pose = P.Visual.pose(g);
+  renderer.pop(310, 560, 27, 1, g.player, 0, pose);
+  const transforms = calls.filter((c) => c[0] !== "drawImage");
+  calls.length = 0;
+  renderer.images.idle = {};
+  renderer.pop(310, 560, 27, 1, g.player, 0, pose);
+  assert.deepEqual(
+    calls.filter((c) => c[0] !== "drawImage"),
+    transforms,
+  );
+  assert.ok(calls.some((c) => c[0] === "drawImage"));
+  const before = JSON.stringify(g);
+  for (let i = 0; i < 5; i++) renderer.render(g, i / 60);
+  assert.equal(JSON.stringify(g), before);
+});

@@ -7,11 +7,72 @@
     const s = Math.sin(n * 127.1 + 31.7) * 43758.5453;
     return s - Math.floor(s);
   };
+  // 描画専用。ゲーム状態や当たり判定の座標には書き戻さない。
+  const Visual = {
+    stride: 96,
+    parallax: {
+      far: 0.08,
+      middle: 0.28,
+      near: 0.62,
+      ground: 1,
+      foreground: 1.12,
+    },
+    worldX(index, spacing, scroll, ratio = 1) {
+      return index * spacing - scroll * ratio;
+    },
+    pose(game, landing = 0, reduced = false) {
+      const p = game.player;
+      const phase =
+        ((((game.distance * C.pixelsPerMeter) / this.stride) % 1) + 1) % 1;
+      const speed = P.clamp(
+        (game.speed - C.startSpeed) / (C.maxSpeed - C.startSpeed),
+        0,
+        1,
+      );
+      const pose = { phase, lift: 0, sx: 1, sy: 1, angle: 0, mode: "run" };
+      if (reduced) return pose;
+      if (p.stumble > 0) {
+        const t = 1 - p.stumble / 0.48;
+        return {
+          ...pose,
+          mode: "stumble",
+          sx: 1.18,
+          sy: 0.82,
+          lift: Math.sin(t * Math.PI) * 5,
+          angle: 0.6 * Math.sin(t * Math.PI * 2),
+        };
+      }
+      if (!p.grounded) {
+        const rising = game.question ? C.lanes[p.lane] < p.y : p.vy < 0;
+        return {
+          ...pose,
+          mode: rising ? "jump" : "fall",
+          sx: rising ? 0.9 : 0.94,
+          sy: rising ? 1.12 : 1.08,
+          angle: rising ? 0.16 : -0.08,
+        };
+      }
+      // 接地→蹴り出し→小さな滞空→接地。歩幅を一定にすると加速にも自然に追従する。
+      const air = P.clamp((phase - 0.22) / 0.78, 0, 1);
+      const hop = Math.sin(air * Math.PI);
+      const squash = Math.max(0, 1 - phase / 0.22) * 0.16 + landing * 0.17;
+      pose.lift = hop * (7 + speed * 3);
+      pose.sx = 1 + squash - hop * 0.06;
+      pose.sy = 1 - squash + hop * 0.09;
+      pose.angle = 0.1 + speed * 0.035 + Math.sin(phase * Math.PI * 2) * 0.025;
+      return pose;
+    },
+  };
+  P.Visual = Visual;
   class Renderer {
     constructor(canvas) {
       this.canvas = canvas;
       this.ctx = canvas.getContext("2d");
       this.images = {};
+      this.reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+      this.lastPlayer = null;
+      this.wasGrounded = true;
+      this.landedAt = -Infinity;
       // 画像を置いて CONFIG.useCharacterImages を true にすれば差し替え可能。
       if (C.useCharacterImages) {
         for (const [key, path] of Object.entries(C.characterAssets)) {
@@ -137,7 +198,7 @@
       c.fillRect(0, 0, 1280, 720);
       // 遠景の洞窟のアーチ。
       for (let i = -1; i < 5; i++) {
-        const x = i * 430 - ((offset * 0.08) % 430);
+        const x = i * 430 - ((offset * Visual.parallax.far) % 430);
         this.polygon(
           [
             [x, 600],
@@ -201,8 +262,8 @@
       c.globalAlpha = 1;
       // 後景の岩山と結晶。
       for (let i = -1; i < 8; i++) {
-        const x = i * 225 - ((offset * 0.19) % 225),
-          n = i + Math.floor((offset * 0.19) / 225);
+        const x = i * 225 - ((offset * Visual.parallax.middle) % 225),
+          n = i + Math.floor((offset * Visual.parallax.middle) / 225);
         const h = 75 + hash(n + 71) * 180;
         this.polygon(
           [
@@ -221,7 +282,7 @@
           ],
           "#355f61",
         );
-        if (i % 2 === 0) {
+        if (n % 2 === 0) {
           this.crystal(x + 110, 590, 28, "#4e9d9977", -0.2);
           this.crystal(x + 133, 603, 42, "#53aaa366", 0.15);
         }
@@ -232,18 +293,24 @@
         [1280, 0],
         [1280, 44],
       ];
-      for (let i = 16; i >= 0; i--) roof.push([i * 80, 40 + hash(i + 8) * 72]);
+      const roofScroll = offset * Visual.parallax.near;
+      const roofStart = Math.floor(roofScroll / 80);
+      for (let i = 18; i >= -1; i--) {
+        const n = roofStart + i;
+        roof.push([n * 80 - roofScroll, 40 + hash(n + 8) * 72]);
+      }
       this.polygon(roof, "#102e3c");
       for (let i = 0; i < 12; i++) {
-        const x = i * 133 - ((offset * 0.25) % 133);
-        const h = 40 + hash(i + 1) * 95;
+        const n = i + Math.floor(roofScroll / 133);
+        const x = Visual.worldX(n, 133, offset, Visual.parallax.near);
+        const h = 40 + hash(n + 1) * 95;
         this.polygon(
           [
             [x, 40],
             [x + 24, 86 + h],
             [x + 54, 30],
           ],
-          i % 2 ? "#173b48" : "#1b404b",
+          n % 2 ? "#173b48" : "#1b404b",
         );
         this.polygon(
           [
@@ -455,7 +522,7 @@
       }
       c.restore();
     }
-    pop(x, y, r, time, player, chain) {
+    pop(x, y, r, time, player, chain, pose = null) {
       const c = this.ctx;
       let image = this.images.idle;
       if (player.smile > 0)
@@ -465,14 +532,19 @@
           ] || image;
       c.save();
       c.translate(x, y);
-      const wobble =
-        player.grounded === false ? -0.025 : Math.sin(time * 14) * 0.045;
-      if (player.stumble > 0) c.rotate(Math.sin(player.stumble * 20) * 0.6);
-      c.scale(1 + wobble, 1 - wobble);
+      if (pose) {
+        // PNGも図形も同じ足元原点で、同じ変形を受ける。
+        c.translate(0, -pose.lift);
+        c.rotate(pose.angle);
+        c.scale(pose.sx, pose.sy);
+      } else {
+        const wobble = Math.sin(time * 2.1) * 0.025;
+        c.scale(1 + wobble, 1 - wobble);
+      }
       if (player.invincible > 0 && Math.floor(player.invincible * 14) % 2)
         c.globalAlpha = 0.5;
       if (image) {
-        c.drawImage(image, -r * 1.15, -r * 2.2, r * 2.3, r * 2.3);
+        c.drawImage(image, -r * 1.15, -r * 2.3, r * 2.3, r * 2.3);
         c.restore();
         return;
       }
@@ -527,6 +599,124 @@
       }
       c.restore();
     }
+    terrain(x, y, width, lane, scroll) {
+      if (width <= 0) return;
+      const c = this.ctx,
+        floor = lane === 2;
+      const depth = floor ? 170 : 34;
+      c.save();
+      // 穴を跨いで装飾しない。上端yは従来の衝突面と完全に同じ。
+      c.beginPath();
+      c.rect(x, y, width, floor ? 180 : 60);
+      c.clip();
+      const gradient = c.createLinearGradient(0, y, 0, y + depth);
+      gradient.addColorStop(0, "#527773");
+      gradient.addColorStop(1, "#203e49");
+      if (floor) {
+        c.fillStyle = gradient;
+        c.fillRect(x, y, width, 180);
+      }
+      const first = Math.floor((scroll + x) / 160);
+      const last = Math.ceil((scroll + x + width) / 160);
+      for (let n = first; n <= last; n++) {
+        const tx = Visual.worldX(n, 160, scroll);
+        const seed = n + lane * 713;
+        const bottom = depth + hash(seed + 7) * 20;
+        this.polygon(
+          [
+            [tx, y],
+            [tx + 160, y],
+            [tx + 160, y + depth],
+            [tx + 125, y + bottom],
+            [tx + 84, y + depth - 7],
+            [tx + 34, y + bottom],
+            [tx, y + depth],
+          ],
+          gradient,
+        );
+        // 不均一な鉱物の縁。規則的なレールや支柱を描かない。
+        this.polygon(
+          [
+            [tx, y],
+            [tx + 160, y],
+            [tx + 160, y + 3],
+            [tx + 120, y + 6],
+            [tx + 88, y + 3],
+            [tx + 44, y + 7],
+            [tx, y + 4],
+          ],
+          "#a6bfa0",
+        );
+        this.polygon(
+          [
+            [tx + 12, y + 13],
+            [tx + 49, y + 9],
+            [tx + 71, y + 23],
+            [tx + 57, y + 31],
+            [tx + 24, y + 27],
+          ],
+          "#83a09255",
+        );
+        c.strokeStyle = "#17394466";
+        c.lineWidth = 2;
+        c.beginPath();
+        c.moveTo(tx + 95, y + 6);
+        c.lineTo(tx + 83, y + 19);
+        c.lineTo(tx + 102, y + 30);
+        c.lineTo(tx + 98, y + depth);
+        c.stroke();
+        if (floor) {
+          const ry = y + 60 + hash(seed + 13) * 65;
+          this.polygon(
+            [
+              [tx + 15, ry],
+              [tx + 43, ry - 11],
+              [tx + 72, ry + 3],
+              [tx + 61, ry + 19],
+              [tx + 29, ry + 23],
+            ],
+            "#76988a44",
+          );
+          if (hash(seed + 29) > 0.65)
+            this.crystal(tx + 116, y + 126, 17, "#6ba99a", 0.2);
+        }
+      }
+      c.restore();
+    }
+    foreground(scroll, speed) {
+      const c = this.ctx,
+        ratio = Visual.parallax.foreground;
+      const first = Math.floor((scroll * ratio) / 290);
+      for (let n = first; n < first + 6; n++) {
+        const x = Visual.worldX(n, 290, scroll, ratio);
+        this.polygon(
+          [
+            [x - 30, 720],
+            [x + 15, 695],
+            [x + 48, 688 + hash(n) * 16],
+            [x + 116, 720],
+          ],
+          "#102c38",
+        );
+      }
+      // 速度線は足元より下だけ。障害物や答えの数字を覆わない。
+      if (this.reducedMotion.matches) return;
+      const intensity = P.clamp(
+        (speed - C.startSpeed) / (C.maxSpeed - C.startSpeed),
+        0,
+        1,
+      );
+      c.strokeStyle = `rgba(163,218,198,${0.04 + intensity * 0.08})`;
+      c.lineWidth = 1;
+      for (let n = first * 2; n < first * 2 + 12; n++) {
+        const x = Visual.worldX(n, 145, scroll, ratio);
+        const y = 635 + hash(n + 56) * 43;
+        c.beginPath();
+        c.moveTo(x, y);
+        c.lineTo(x + 12 + intensity * 35, y);
+        c.stroke();
+      }
+    }
     tracks(game) {
       const c = this.ctx,
         q = game.question,
@@ -541,7 +731,7 @@
         let start = -20;
         for (const hole of holes) {
           if (hole.x > start)
-            this.platform(start, y, hole.x - start, lane === 2 ? 145 : 31);
+            this.terrain(start, y, hole.x - start, lane, scroll);
           this.polygon(
             [
               [hole.x, y + 10],
@@ -556,28 +746,7 @@
           c.fillRect(hole.x + hole.width, y - 1, 12, 5);
           start = hole.x + hole.width;
         }
-        if (start < 1300)
-          this.platform(start, y, 1300 - start, lane === 2 ? 145 : 31);
-        if (lane < 2) {
-          for (let i = 0; i < 9; i++) {
-            const x = i * 185 - (scroll % 185);
-            c.strokeStyle = "#24454c";
-            c.lineWidth = 5;
-            c.beginPath();
-            c.moveTo(x, y + 33);
-            c.lineTo(x + 14, y + 76);
-            c.stroke();
-          }
-        }
-      }
-      for (let i = 0; i < 10; i++) {
-        const x = i * 160 - ((scroll * 0.9) % 160);
-        c.fillStyle = "#70927d66";
-        c.fillRect(x, 602 + hash(i + 3) * 65, 22, 4);
-        if (i % 3 === 0) {
-          this.crystal(x, 687, 30, "#4c9286", -0.3);
-          this.crystal(x + 18, 691, 20, "#70b79e", 0.2);
-        }
+        if (start < 1300) this.terrain(start, y, 1300 - start, lane, scroll);
       }
       for (const o of game.obstacles) {
         if (o.kind !== "stalactite") continue;
@@ -701,22 +870,41 @@
         time,
         game.misses >= 3,
       );
+      if (this.lastPlayer !== game.player) {
+        this.lastPlayer = game.player;
+        this.wasGrounded = game.player.grounded;
+        this.landedAt = -Infinity;
+      }
+      if (!this.wasGrounded && game.player.grounded)
+        this.landedAt = game.elapsed;
+      this.wasGrounded = game.player.grounded;
+      const landing = Math.max(0, 1 - (game.elapsed - this.landedAt) / 0.14);
+      const pose = Visual.pose(game, landing, this.reducedMotion.matches);
+      const altitude =
+        Math.max(0, C.lanes[game.player.lane] - game.player.y) + pose.lift;
+      const shadowScale = Math.max(0.45, 1 - altitude / 240);
       this.ellipse(
         C.playerX,
         C.lanes[game.player.lane] + 4,
-        32,
-        7,
+        29 * shadowScale,
+        5 * shadowScale,
         "#0b273b55",
       );
-      if (game.player.grounded && game.player.stumble <= 0) {
-        for (let i = 0; i < 4; i++) {
-          const phase = (time * 3 + i * 0.24) % 1;
+      if (
+        game.player.grounded &&
+        game.player.stumble <= 0 &&
+        !this.reducedMotion.matches
+      ) {
+        // 土煙は蹴り出した世界座標から流れる。速度が上がれば頻度も上がる。
+        for (let i = 0; i < 3; i++) {
+          const age = (pose.phase + i / 3) % 1;
+          const life = 1 - age;
           this.ellipse(
-            C.playerX - 29 - phase * 58,
-            game.player.y - 3 - phase * 8,
-            4 * (1 - phase),
-            3 * (1 - phase),
-            "#b6d8b14d",
+            C.playerX - 24 - age * Visual.stride,
+            game.player.y - 2 - age * 12,
+            (2 + age * 3) * life,
+            (2 + age * 2) * life,
+            `rgba(182,216,177,${life * 0.28})`,
           );
         }
       }
@@ -731,7 +919,9 @@
         time,
         game.player,
         game.chain,
+        pose,
       );
+      this.foreground(game.distance * C.pixelsPerMeter, game.speed);
       c.restore();
       if (game.misses >= 3) {
         const vignette = c.createLinearGradient(0, 0, 430, 0);
