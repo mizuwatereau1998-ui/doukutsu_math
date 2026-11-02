@@ -169,6 +169,24 @@
         advance: capture ? A.captureAdvance*(1-(1-approach)**3) : 0,
         done: capture && captureElapsed >= A.captureSeconds };
     },
+    levelFrame(upgraded, elapsed = null, reduced = false) {
+      const A = C.monsterAnimation;
+      if (!upgraded) return { stage: 'twoLane', progress: 0,
+        scale: A.twoLaneScale, sx: 1, sy: 1, shakeX: 0, brightness: 1 };
+      const progress = elapsed === null || A.levelUpSeconds <= 0 ? 1 : P.clamp(elapsed/A.levelUpSeconds,0,1);
+      if (progress >= 1) return { stage: 'threeLane', progress: 1,
+        scale: A.threeLaneScale, sx: 1, sy: 1, shakeX: 0, brightness: 1 };
+      const ease = progress*progress*(3-2*progress);
+      const pulse = progress < 0.5 ? Math.sin(progress*2*Math.PI) : 0;
+      const strength = reduced ? 0 : 1;
+      return { stage: progress < 1 ? 'levelUp' : 'threeLane', progress,
+        scale: A.twoLaneScale+(A.threeLaneScale-A.twoLaneScale)*ease,
+        sx: 1+A.levelUpPulse*pulse*strength,
+        sy: 1+(A.levelUpPulse*0.65*pulse+
+          Math.sin(progress*4*Math.PI)*A.levelUpSquash*(1-progress))*strength,
+        shakeX: Math.sin(progress*Math.PI*2*A.levelUpShakeCycles)*A.levelUpShakePixels*pulse*strength,
+        brightness: 1+A.levelUpBrightness*pulse*strength };
+    },
     bounds(key, image) {
       const A=C.monsterAnimation, f=A.frames[key]||{};
       const scale=A.width/A.sourceWidth*(f.scale??1);
@@ -261,26 +279,71 @@
         state==='capture'?Math.max(0,presentationTime-playback.captureStart):0,
         Math.max(0,game.elapsed-playback.origin.elapsed));
     }
-    drawMonster(x,y,scale,time,danger,motion=null,sprite=null) {
+    monsterLevel(game) {
+      const upgraded = game.player.topLane === 0 || game.distance >= C.threeChoiceDistance;
+      let level = this.monsterLevelPlayback;
+      if (level?.player !== game.player) {
+        // Starting a developer run beyond 900m uses the upgraded size immediately.
+        level = this.monsterLevelPlayback = { player: game.player, upgraded, start: null };
+      } else if (upgraded && !level.upgraded) {
+        level.upgraded = true;
+        level.start = game.elapsed;
+      }
+      return MonsterAnimation.levelFrame(level.upgraded,
+        level.start === null ? null : Math.max(0,game.elapsed-level.start),
+        this.reducedMotion.matches);
+    }
+    drawMonster(x,y,scale,time,danger,motion=null,sprite=null,level=null) {
       const A=C.monsterAnimation;
       const frame=sprite||MonsterAnimation.frame('chase',time*A.chaseFps,0,1);
       const complete=C.useMonsterImages && this.monsterAssetStatus?.loaded===Object.keys(C.monsterAssets).length;
       const image=complete?this.monsterImages?.[frame.key]:null;
-      this.lastMonsterFrame={...frame,source:image?'image':'canvas'};
       const reduced=this.reducedMotion.matches;
+      const growth=level||{stage:'title',scale:1,sx:1,sy:1,shakeX:0,brightness:1,progress:1};
+      const capture=frame.state==='capture';
+      const gx=growth.scale*(capture?1:growth.sx),gy=growth.scale*(capture?1:growth.sy);
+      const shift=level?(1-gx)*A.width*A.growthAnchorRatio:0;
       const advance=reduced?0:frame.advance;
-      if(!image){this.monster(x+advance,y,scale,time,danger,motion);return;}
-      const c=this.ctx, threat=frame.state==='threat';
+      const lean=(reduced?0:motion?.lunge||0)+(frame.state==='threat'?A.threatLean*frame.transition:0);
+      let root=x+A.offsetX+advance+(capture?0:growth.shakeX);
+      const baseScale=scale*A.scale;
+      const threat=frame.state==='threat';
       const wave=Math.sin(frame.phase), squash=threat?A.threatSquash:A.chaseSquash;
-      const strength=reduced||frame.state==='capture'?0:1;
-      const bounds=MonsterAnimation.bounds(frame.key,image);
+      const strength=reduced||capture?0:1;
+      const angle=wave*(threat?A.threatTilt:A.chaseTilt)*strength;
+      const sx=(A.flipX?-1:1)*gx*(1+wave*squash*strength), sy=gy*(1-wave*squash*strength);
+      const bounds=image?MonsterAnimation.bounds(frame.key,image):{x:-150,y:-200,width:300,height:220};
+      let renderRight=null;
+      if(level && !capture) {
+        // Keep enlarged art behind the player's path; this never changes chase coordinates.
+        const corners=[bounds.x,bounds.x+bounds.width].flatMap(px=>
+          [bounds.y,bounds.y+bounds.height].map(py=>Math.cos(angle)*px*sx-Math.sin(angle)*py*sy));
+        const front=root+baseScale*(shift+lean+Math.max(...corners))+A.frontPadding;
+        root-=Math.max(0,front-(C.playerX-A.frontClearance));
+        renderRight=root+baseScale*(shift+lean+Math.max(...corners));
+      }
+      this.lastMonsterFrame={...frame,source:image?'image':'canvas',
+        levelStage:growth.stage,levelProgress:growth.progress,levelScale:growth.scale,
+        presentationState:capture?'capture':frame.state==='threat'?'threat':
+          growth.stage==='levelUp'?'levelUp':growth.stage==='threeLane'?'chaseUpgraded':'chase',
+        renderX:root, renderRight, renderScale:baseScale*gx };
+      const c=this.ctx;
+      if(!image) {
+        if(!level){this.monster(x+advance,y,scale,time,danger,motion);return;}
+        c.save();c.translate(root,y+A.offsetY);c.scale(baseScale,baseScale);
+        c.translate(shift,0);c.scale(gx,gy);
+        c.filter=`brightness(${capture?1:growth.brightness})`;
+        const fallbackMotion=motion?{...motion,lunge:motion.lunge/gx,bounce:motion.bounce/gy}:null;
+        this.monster(0,-A.canvasFootY,1,time,danger,fallbackMotion);
+        c.restore();return;
+      }
       c.save();
-      c.translate(x+A.offsetX+advance,y+A.offsetY);
-      c.scale(scale*A.scale,scale*A.scale);
-      c.translate((reduced?0:motion?.lunge||0)+(threat?A.threatLean*frame.transition:0),
-        -Math.max(0,wave)*(threat?A.threatBounce:A.chaseBounce)*strength);
-      c.rotate(wave*(threat?A.threatTilt:A.chaseTilt)*strength);
-      c.scale((A.flipX?-1:1)*(1+wave*squash*strength),1-wave*squash*strength);
+      c.translate(root,y+A.offsetY);
+      c.scale(baseScale,baseScale);
+      c.translate(shift+lean,-Math.max(0,wave)*(threat?A.threatBounce:A.chaseBounce)*strength);
+      c.rotate(angle);
+      c.scale(sx,sy);
+      c.filter=`brightness(${capture?1:growth.brightness})`;
       c.drawImage(image,bounds.x,bounds.y,bounds.width,bounds.height);
       c.restore();
     }
@@ -1261,6 +1324,7 @@
         game.misses >= 3,
         Visual.chase(game, this.reducedMotion.matches),
         this.monsterFrame(game, presentationTime),
+        this.monsterLevel(game),
       );
       if (this.lastPlayer !== game.player) {
         this.lastPlayer = game.player;

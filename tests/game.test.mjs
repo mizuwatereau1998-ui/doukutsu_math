@@ -1010,3 +1010,59 @@ test('追手の8枚ロードはポップンの画像と状態を上書きせず�
   assert.notEqual(r.monsterImages.run01,hero);
  }finally{globalThis.Image=PreviousImage;}
 });
+
+test('追手は2段で1.5倍、3段で2.2倍となり、0.85秒の強化を経て固定する',()=>{
+ const A=C.monsterAnimation,M=P.MonsterAnimation;
+ assert.equal(M.levelFrame(false).scale,1.5);
+ assert.equal(M.levelFrame(true).scale,2.2);
+ const first=M.levelFrame(true,0),middle=M.levelFrame(true,.2),last=M.levelFrame(true,A.levelUpSeconds);
+ assert.equal(first.stage,'levelUp');assert.equal(first.scale,1.5);
+ assert.ok(middle.scale>first.scale && middle.scale<last.scale);
+ assert.ok(middle.sx>1 && middle.brightness>1);
+ assert.equal(last.stage,'threeLane');assert.equal(last.scale,2.2);
+ assert.deepEqual([last.sx,last.sy,last.shakeX,last.brightness],[1,1,0,1]);
+ const normalHeight=241*A.width/A.sourceWidth*1.05*A.twoLaneScale;
+ const upgradedHeight=241*A.width/A.sourceWidth*1.05*A.threeLaneScale;
+ assert.ok(normalHeight>C.lanes[2]-C.lanes[1]);
+ assert.ok(upgradedHeight>C.lanes[2]-C.lanes[0]);
+});
+test('追手の強化は900mを跨ぐと一度だけ開始し、一時停止で止まり、新規プレイで戻る',()=>{
+ const g=new P.Game();g.start(3);
+ const r=Object.create(P.Renderer.prototype);r.reducedMotion={matches:false};
+ g.distance=899;assert.equal(r.monsterLevel(g).stage,'twoLane');
+ g.distance=900;g.syncLanes();g.elapsed=10;
+ assert.equal(r.monsterLevel(g).stage,'levelUp');
+ g.elapsed=10.2;const growing=r.monsterLevel(g);
+ g.pause();const before=JSON.stringify(g);g.update(1);
+ assert.deepEqual(r.monsterLevel(g),growing);assert.equal(JSON.stringify(g),before);
+ g.elapsed=11.1;assert.equal(r.monsterLevel(g).stage,'threeLane');
+ g.distance=100;assert.equal(r.monsterLevel(g).stage,'threeLane');
+ g.start(3);assert.equal(r.monsterLevel(g).stage,'twoLane');
+ g.start(3,3000);assert.equal(r.monsterLevel(g).stage,'threeLane');
+ assert.equal(r.monsterLevel(g).progress,1);
+});
+test('大きい追手と強化中の追手もポップンの進路を塞がず、威嚇・捕獲を優先する',()=>{
+ const r=Object.create(P.Renderer.prototype);
+ const filters=[];
+ r.ctx=new Proxy({}, {get:()=>()=>{},set:(_,key,value)=>{if(key==='filter')filters.push(value);return true;}});
+ r.reducedMotion={matches:false};r.monsterAssetStatus={loaded:8,failed:[]};
+ r.monsterImages=Object.fromEntries(Object.keys(C.monsterAssets).map(k=>[k,{naturalWidth:512,naturalHeight:512}]));
+ for(const level of [P.MonsterAnimation.levelFrame(false),P.MonsterAnimation.levelFrame(true,.2),P.MonsterAnimation.levelFrame(true)])
+  for(let misses=0;misses<5;misses++)for(const clock of [0,.8,1.6,2.4]){
+   const state=misses>=3?'threat':'chase';
+   const frame=P.MonsterAnimation.frame(state,clock,0,1);
+   r.drawMonster(-20+misses*34,568,1.05+misses*.095,0,misses>=3,null,frame,level);
+   assert.ok(r.lastMonsterFrame.renderRight<=C.playerX-C.monsterAnimation.frontClearance+1e-9);
+   if(state==='threat')assert.equal(r.lastMonsterFrame.presentationState,'threat');
+   else if(level.stage==='levelUp')assert.equal(r.lastMonsterFrame.presentationState,'levelUp');
+  }
+ r.drawMonster(150,568,1.525,0,true,null,P.MonsterAnimation.frame('capture',0,.4),P.MonsterAnimation.levelFrame(true,.2));
+ assert.equal(r.lastMonsterFrame.presentationState,'capture');
+ assert.equal(r.lastMonsterFrame.key,'capture02');
+ assert.equal(filters.at(-1),'brightness(1)');
+});
+test('視差効果を減らす設定では強化の揺れ・明滅・膨張を抑えてサイズだけ移行する',()=>{
+ const a=P.MonsterAnimation.levelFrame(true,.2,true);
+ assert.deepEqual([a.sx,a.sy,a.shakeX,a.brightness],[1,1,0,1]);
+ assert.ok(a.scale>C.monsterAnimation.twoLaneScale && a.scale<C.monsterAnimation.threeLaneScale);
+});

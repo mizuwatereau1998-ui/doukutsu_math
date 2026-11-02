@@ -181,6 +181,18 @@
       sourceFootY: 465,
       sourceWidth: 470,
       width: 260,
+      twoLaneScale: 1.5,
+      threeLaneScale: 2.2,
+      levelUpSeconds: 0.85,
+      levelUpPulse: 0.08,
+      levelUpSquash: 0.035,
+      levelUpShakePixels: 1.5,
+      levelUpShakeCycles: 5,
+      levelUpBrightness: 0.18,
+      growthAnchorRatio: 0.1, // Grow mainly toward the left, keeping the face visible.
+      frontClearance: 30,
+      frontPadding: 12,
+      canvasFootY: 16,
       scale: 1,
       offsetX: 0,
       offsetY: -8, // Existing monster origin is y=568; the floor is y=560.
