@@ -947,3 +947,66 @@ test('画像の事前ロードは11枚を待ち、読み込みエラーでも正
   assert.equal(Object.keys(renderer.images).length,10);
  }finally{globalThis.Image=PreviousImage;}
 });
+
+test('追手は通常4枚・威嚇2枚を順にループし、速度と連動する',()=>{
+ const A=P.MonsterAnimation,g=new P.Game();g.start(3);
+ assert.deepEqual([0,1,2,3,4].map(t=>A.frame('chase',t).key),['run01','run02','run03','run04','run01']);
+ assert.deepEqual([0,1,2,3].map(t=>A.frame('threat',t).key),['threat01','threat02','threat01','threat02']);
+ const origin={elapsed:0,distance:0};
+ for(const [state,min,max]of [['chase',9,14],['threat',7,10]]){
+  g.elapsed=1;g.distance=C.startSpeed/C.pixelsPerMeter;
+  assert.ok(Math.abs(A.clock(g,origin,state)-min)<1e-9);
+  g.distance=C.maxSpeed/C.pixelsPerMeter;
+  assert.ok(Math.abs(A.clock(g,origin,state)-max)<1e-9);
+ }
+});
+test('追手の状態は捕獲→残り2段階以下の威嚇→通常。回復で通常へ戻る',()=>{
+ const g=new P.Game();g.start(3);
+ assert.equal(P.MonsterAnimation.state(g),'chase');
+ g.misses=3;assert.equal(P.MonsterAnimation.state(g),'threat');
+ g.misses=2;assert.equal(P.MonsterAnimation.state(g),'chase');
+ g.mode='over';assert.equal(P.MonsterAnimation.state(g),'capture');
+});
+test('捕獲はゲーム時間が止まったまま描画時間で01→02へ進み、新規プレイに残らない',()=>{
+ const g=new P.Game();g.start(3);g.distance=456.75;g.misses=5;g.mode='over';
+ const r=Object.create(P.Renderer.prototype),snapshot=JSON.stringify(g);
+ r.beginCapture(g,100);
+ const first=r.monsterFrame(g,100),middle=r.monsterFrame(g,100.45),last=r.monsterFrame(g,100.81);
+ assert.equal(first.key,'capture01');assert.equal(middle.key,'capture02');assert.equal(last.key,'capture02');
+ assert.equal(first.advance,0);assert.equal(last.advance,C.monsterAnimation.captureAdvance);
+ assert.equal(r.isCapturing(g,100.2),true);assert.equal(r.isCapturing(g,100.81),false);
+ assert.equal(JSON.stringify(g),snapshot);
+ g.start(3);assert.equal(r.monsterFrame(g,100.82).state,'chase');
+ assert.equal(r.isCapturing(g,100.9),false);
+});
+test('追手の8枚は共通の倍率と個別の足元で揃え、切り替えでサイズを正規化しない',()=>{
+ const A=C.monsterAnimation,widths=new Set();
+ assert.equal(Object.keys(C.monsterAssets).length,8);
+ for(const key of Object.keys(C.monsterAssets)){
+  const bounds=P.MonsterAnimation.bounds(key,{naturalWidth:512,naturalHeight:512});
+  const scale=A.width/A.sourceWidth;widths.add(bounds.width);
+  assert.ok(Math.abs(bounds.x+A.sourceFootX*scale)<1e-9);
+  assert.ok(Math.abs(bounds.y+A.frames[key].footY*scale)<1e-9);
+  assert.ok(C.monsterAssets[key].startsWith('assets/monsters/chase_'));
+ }
+ assert.equal(widths.size,1);
+});
+test('追手の8枚ロードはポップンの画像と状態を上書きせず、失敗しても完了する',async()=>{
+ const PreviousImage=globalThis.Image,created=[],hero={name:'hero'};
+ globalThis.Image=class{
+  constructor(){this.naturalWidth=512;this.naturalHeight=512;created.push(this);}
+  set src(value){this.path=value;}
+  async decode(){}
+ };
+ try{
+  const r=Object.create(P.Renderer.prototype);
+  Object.assign(r,{images:{run01:hero},assetStatus:{loaded:11,failed:[]},monsterImages:{},monsterAssetStatus:{loaded:0,failed:[]}});
+  let ready=false;const promise=r.loadMonsters().then(()=>{ready=true;});
+  assert.equal(created.length,8);assert.equal(ready,false);
+  await Promise.all(created.slice(0,7).map(i=>i.onload()));
+  assert.equal(ready,false);created[7].onerror();await promise;
+  assert.equal(r.monsterAssetStatus.loaded,7);assert.deepEqual(r.monsterAssetStatus.failed,['capture02']);
+  assert.equal(r.images.run01,hero);assert.equal(r.assetStatus.loaded,11);
+  assert.notEqual(r.monsterImages.run01,hero);
+ }finally{globalThis.Image=PreviousImage;}
+});

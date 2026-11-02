@@ -87,7 +87,7 @@ with sync_playwright() as p:
       const g=PopEscape.game;
       for(let i=0;i<5;i++){g.player.invincible=0;g.miss('hole');}
     }''')
-    assert page.locator('#result-screen').is_visible()
+    page.locator('#result-screen').wait_for(state='visible')
     assert page.locator('#result-total').inner_text() == '3'
     best = page.locator('#result-best').inner_text()
     page.screenshot(path='/tmp/poppun-result.png', full_page=True)
@@ -197,7 +197,7 @@ with sync_playwright() as p:
       const g=PopEscape.game;
       for(let i=0;i<5;i++){g.player.invincible=0;g.miss('spikes');}
     }""")
-    assert dev.locator('#result-screen').is_visible()
+    dev.locator('#result-screen').wait_for(state='visible')
     assert '保存されません' in dev.locator('#result-message').inner_text()
     assert dev.evaluate('localStorage.getItem(PopEscape.CONFIG.storageKey)') == stored
     dev.click('#retry-button')

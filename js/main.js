@@ -10,7 +10,8 @@
   let toastUntil = 0,
     previousTime = 0,
     accumulator = 0,
-    hudStamp = "";
+    hudStamp = "",
+    capturePending = false;
   try {
     const saved = JSON.parse(localStorage.getItem(C.storageKey) || "{}");
     for (const g of [3, 4])
@@ -76,11 +77,12 @@
     });
   }
   function showMode() {
+    if (game.mode !== "over") capturePending = false;
     $("title-screen").hidden = game.mode !== "title";
     $("hud").hidden = game.mode === "title" || game.mode === "over";
     $("run-hint").hidden = game.mode !== "running";
     $("pause-screen").hidden = game.mode !== "paused";
-    $("result-screen").hidden = game.mode !== "over";
+    $("result-screen").hidden = game.mode !== "over" || capturePending;
     document.body.classList.toggle("in-game", game.mode !== "title");
     if (game.mode !== "running") $("game-toast").classList.remove("visible");
     if (game.mode === "title") {
@@ -90,7 +92,7 @@
     if (game.mode === "over") $("question-banner").hidden = true;
     if (game.mode === "paused")
       $("resume-button").focus({ preventScroll: true });
-    if (game.mode === "over") $("retry-button").focus({ preventScroll: true });
+    if (game.mode === "over" && !capturePending) $("retry-button").focus({ preventScroll: true });
     if (game.mode === "title") $("start-button").focus({ preventScroll: true });
     accumulator = 0;
   }
@@ -154,6 +156,9 @@
         $("result-message").textContent = game.testMode ? "開発テスト：最高記録には保存されません。" : record
           ? "自己ベスト更新！ すごいぞ、ポップン。"
           : "つぎは、もっと遠くまで。";
+        // Scores are already final. Only the result panel waits for the visual capture.
+        renderer.beginCapture(game, performance.now()/1000);
+        capturePending = true;
         showMode();
       }
     },
@@ -172,7 +177,7 @@
   const renderer = new P.Renderer($("game-canvas"));
   P.renderer = renderer;
   $("start-button").disabled = true;
-  renderer.ready.then(() => { $("start-button").disabled = false; });
+  renderer.assetsReady.then(() => { $("start-button").disabled = false; });
   let starting = false;
   function pause(auto = false) {
     if (game.mode === "running") game.pause();
@@ -193,7 +198,7 @@
     if (starting) return;
     starting = true;
     try {
-      await renderer.ready;
+      await renderer.assetsReady;
       game.start(grade, developerDistance);
       $("start-button").blur();
     } finally { starting = false; }
@@ -269,6 +274,10 @@
         game.update(C.fixedStep);
       }
     }
+    if (capturePending && !renderer.isCapturing(game, now/1000)) {
+      capturePending = false;
+      showMode();
+    }
     renderer.render(
       game,
       game.mode === "running"
@@ -276,6 +285,7 @@
         : game.mode === "title"
           ? now / 1000
           : game.elapsed,
+      now/1000,
     );
     hud();
     if (now > toastUntil) $("game-toast").classList.remove("visible");

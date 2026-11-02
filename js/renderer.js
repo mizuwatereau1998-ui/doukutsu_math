@@ -143,6 +143,41 @@
     },
   };
   P.CharacterAnimation = CharacterAnimation;
+  const MonsterAnimation = {
+    state(game) {
+      if (game.mode === 'over') return 'capture';
+      return C.maxMisses - game.misses <= C.monsterAnimation.threatRemaining ? 'threat' : 'chase';
+    },
+    clock(game, origin, state) {
+      const A = C.monsterAnimation;
+      const base = state === 'threat' ? A.threatFps : A.chaseFps;
+      const max = state === 'threat' ? A.threatMaxFps : A.chaseMaxFps;
+      const elapsed = Math.max(0, game.elapsed - origin.elapsed);
+      const pixels = Math.max(0, game.distance - origin.distance) * C.pixelsPerMeter;
+      return Math.max(0, base * elapsed + (max-base) / (C.maxSpeed-C.startSpeed) *
+        (pixels-C.startSpeed*elapsed));
+    },
+    frame(state, clock, captureElapsed = 0, stateElapsed = 0) {
+      const A = C.monsterAnimation;
+      const capture = state === 'capture';
+      const frames = capture ? A.captureFrames : state === 'threat' ? A.threatFrames : A.chaseFrames;
+      const progress = P.clamp(captureElapsed/A.captureSeconds,0,1);
+      const index = capture ? (progress < A.captureFirstFraction ? 0 : 1) : Math.floor(clock)%frames.length;
+      const approach = P.clamp(captureElapsed/A.captureLungeSeconds,0,1);
+      return { key: frames[index], state, phase: clock/4*Math.PI*2, progress,
+        transition: P.clamp(stateElapsed/A.transitionSeconds,0,1),
+        advance: capture ? A.captureAdvance*(1-(1-approach)**3) : 0,
+        done: capture && captureElapsed >= A.captureSeconds };
+    },
+    bounds(key, image) {
+      const A=C.monsterAnimation, f=A.frames[key]||{};
+      const scale=A.width/A.sourceWidth*(f.scale??1);
+      return { x:-(f.footX??A.sourceFootX)*scale+(f.offsetX||0),
+        y:-(f.footY??A.sourceFootY)*scale+(f.offsetY||0),
+        width:image.naturalWidth*scale, height:image.naturalHeight*scale };
+    },
+  };
+  P.MonsterAnimation = MonsterAnimation;
   class Renderer {
     constructor(canvas) {
       this.canvas = canvas;
@@ -154,6 +189,10 @@
       this.landedAt = -Infinity;
       this.assetStatus = { loaded: 0, failed: [] };
       this.ready = this.loadCharacters();
+      this.monsterImages = {};
+      this.monsterAssetStatus = { loaded: 0, failed: [] };
+      this.monsterReady = this.loadMonsters();
+      this.assetsReady = Promise.all([this.ready, this.monsterReady]);
       this.resize();
       this.observer = new ResizeObserver(() => this.resize());
       this.observer.observe(canvas);
@@ -180,6 +219,70 @@
         image.onerror = () => finish(false);
         image.src = path;
       }))).then(() => this.assetStatus);
+    }
+    loadMonsters() {
+      if (!C.useMonsterImages) return Promise.resolve(this.monsterAssetStatus);
+      return Promise.all(Object.entries(C.monsterAssets).map(([key,path])=>new Promise(resolve=>{
+        const image=new Image();let settled=false;
+        const finish=(success)=>{
+          if(settled)return;
+          settled=true;clearTimeout(timeout);image.onload=image.onerror=null;
+          if(success){this.monsterImages[key]=image;this.monsterAssetStatus.loaded++;}
+          else this.monsterAssetStatus.failed.push(key);
+          resolve();
+        };
+        const timeout=setTimeout(()=>finish(false),C.monsterAnimation.loadTimeoutMs);
+        image.onload=async()=>{
+          try{if(image.decode)await image.decode();finish(image.naturalWidth>0);}
+          catch{finish(false);}
+        };
+        image.onerror=()=>finish(false);image.src=path;
+      }))).then(()=>this.monsterAssetStatus);
+    }
+    beginCapture(game, presentationTime) {
+      this.monsterPlayback = { player: game.player, state: 'capture',
+        origin: { elapsed: game.elapsed, distance: game.distance }, captureStart: presentationTime };
+    }
+    isCapturing(game, presentationTime) {
+      const playback=this.monsterPlayback;
+      return game.mode==='over' && playback?.player===game.player && playback.state==='capture' &&
+        presentationTime-playback.captureStart < C.monsterAnimation.captureSeconds;
+    }
+    monsterFrame(game, presentationTime) {
+      const state=MonsterAnimation.state(game);
+      let playback=this.monsterPlayback;
+      if(playback?.player!==game.player || playback.state!==state) {
+        if(state==='capture')this.beginCapture(game,presentationTime);
+        else this.monsterPlayback={ player:game.player,state,
+          origin:{elapsed:game.elapsed,distance:game.distance} };
+        playback=this.monsterPlayback;
+      }
+      return MonsterAnimation.frame(state,MonsterAnimation.clock(game,playback.origin,state),
+        state==='capture'?Math.max(0,presentationTime-playback.captureStart):0,
+        Math.max(0,game.elapsed-playback.origin.elapsed));
+    }
+    drawMonster(x,y,scale,time,danger,motion=null,sprite=null) {
+      const A=C.monsterAnimation;
+      const frame=sprite||MonsterAnimation.frame('chase',time*A.chaseFps,0,1);
+      const complete=C.useMonsterImages && this.monsterAssetStatus?.loaded===Object.keys(C.monsterAssets).length;
+      const image=complete?this.monsterImages?.[frame.key]:null;
+      this.lastMonsterFrame={...frame,source:image?'image':'canvas'};
+      const reduced=this.reducedMotion.matches;
+      const advance=reduced?0:frame.advance;
+      if(!image){this.monster(x+advance,y,scale,time,danger,motion);return;}
+      const c=this.ctx, threat=frame.state==='threat';
+      const wave=Math.sin(frame.phase), squash=threat?A.threatSquash:A.chaseSquash;
+      const strength=reduced||frame.state==='capture'?0:1;
+      const bounds=MonsterAnimation.bounds(frame.key,image);
+      c.save();
+      c.translate(x+A.offsetX+advance,y+A.offsetY);
+      c.scale(scale*A.scale,scale*A.scale);
+      c.translate((reduced?0:motion?.lunge||0)+(threat?A.threatLean*frame.transition:0),
+        -Math.max(0,wave)*(threat?A.threatBounce:A.chaseBounce)*strength);
+      c.rotate(wave*(threat?A.threatTilt:A.chaseTilt)*strength);
+      c.scale((A.flipX?-1:1)*(1+wave*squash*strength),1-wave*squash*strength);
+      c.drawImage(image,bounds.x,bounds.y,bounds.width,bounds.height);
+      c.restore();
     }
     resize() {
       const rect = this.canvas.getBoundingClientRect();
@@ -486,7 +589,7 @@
       // 遠くから迫る、少しおとぼけのモンスター。
       c.save();
       c.globalAlpha = 0.34;
-      this.monster(1280, 512, 1.55, time, false);
+      this.drawMonster(1280, 512, 1.55, time, false);
       c.restore();
       this.ellipse(945, 558, 81, 13, "#0b23347a");
       const bob = Math.sin(time * 2.1) * 10;
@@ -1121,7 +1224,7 @@
         });
       }
     }
-    render(game, time) {
+    render(game, time, presentationTime = time) {
       const c = this.ctx;
       c.setTransform(
         this.canvas.width / C.width,
@@ -1150,13 +1253,14 @@
       this.tracks(game);
       // カメラ位置と操作位置は固定し、追手だけを大きく近づける。
       const monsterX = -20 + game.misses * 34;
-      this.monster(
+      this.drawMonster(
         monsterX,
         568,
         1.05 + game.misses * 0.095,
         time,
         game.misses >= 3,
         Visual.chase(game, this.reducedMotion.matches),
+        this.monsterFrame(game, presentationTime),
       );
       if (this.lastPlayer !== game.player) {
         this.lastPlayer = game.player;

@@ -13,7 +13,7 @@ with sync_playwright() as p:
       PopEscape.game.rng=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/2**32);
       await PopEscape.startTest(3000);
       const g=PopEscape.game,C=PopEscape.CONFIG;
-      const status=window.pressureTest={done:false,error:null,inputs:0,groups:0,lastInput:-Infinity};
+      const status=window.pressureTest={done:false,error:null,inputs:0,groups:0,replanMisses:0,lastInput:-Infinity};
       let cached=null;
       function key(direction) {
         document.body.dispatchEvent(new KeyboardEvent('keydown',{
@@ -29,17 +29,21 @@ with sync_playwright() as p:
             cached=null;
           } else {
             const obstacles=g.obstacles.filter(o=>o.x+o.width>=C.playerX-C.playerRadius);
-            if(!cached || obstacles.some(o=>!cached.obstacles.includes(o))) {
+            if(!cached || cached.refresh || obstacles.some(o=>!cached.obstacles.includes(o))) {
               const route=PopEscape.Obstacles.findRoute(g.player,obstacles,g.distance,{
                 firstInputAfter:Math.max(0,C.transitionInputSeconds-(g.elapsed-status.lastInput))});
-              if(!route)throw new Error('No live route at '+g.distance);
-              cached={obstacles,at:g.elapsed,actions:route.actions};status.groups++;
+              if(route){cached={obstacles,at:g.elapsed,actions:route.actions};status.groups++;}
+              else if(cached){
+                // A bounded search can miss a route from a new RAF phase. Keep the
+                // remaining proven input sequence rather than declaring it impossible.
+                status.replanMisses++;cached.refresh=false;
+              }else throw new Error('No live route at '+g.distance);
             }
             const action=cached.actions[0];
-            if(action && g.elapsed-cached.at+1e-8>=action.step*C.fixedStep) {
+            if(action && g.elapsed-cached.at+1e-8>=action.step*C.fixedStep && g.elapsed-status.lastInput>=C.transitionInputSeconds) {
               // RAF can execute several physics ticks between callbacks. Replan after an
               // actual input instead of assuming an old ideal schedule still matches.
-              key(action.direction);cached=null;
+              key(action.direction);cached.actions.shift();cached.refresh=true;
             }
           }
           requestAnimationFrame(drive);
