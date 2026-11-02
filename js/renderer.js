@@ -82,6 +82,67 @@
     },
   };
   P.Visual = Visual;
+  // Image selection and alignment are rendering-only; no timers or physics are changed.
+  const CharacterAnimation = {
+    runFps(speed) {
+      const A = C.characterAnimation;
+      return A.runFps + (A.runMaxFps - A.runFps) *
+        P.clamp((speed - C.startSpeed) / (C.maxSpeed - C.startSpeed), 0, 1);
+    },
+    runClock(game, origin = { distance: 0, elapsed: 0 }) {
+      const A = C.characterAnimation;
+      const elapsed = Math.max(0, game.elapsed - origin.elapsed);
+      const pixels = Math.max(0, game.distance - origin.distance) * C.pixelsPerMeter;
+      // Integral of fps = a + b * speed, using the game's actual travelled distance.
+      // It freezes with pause, resets with a new player, and needs no wall-clock timers.
+      const slope = (A.runMaxFps - A.runFps) / (C.maxSpeed - C.startSpeed);
+      return Math.max(0, A.runFps * elapsed + slope * (pixels - C.startSpeed * elapsed));
+    },
+    frame(game, clock = 0, landing = 0) {
+      const A = C.characterAnimation, p = game.player;
+      const result = (key, state) => ({ key, state, phase: ((clock / A.runFrames.length) % 1 + 1) % 1, landing });
+      if (p.stumble > 0) {
+        const progress = P.clamp(1 - p.stumble / A.stumbleSeconds, 0, 1);
+        return result(progress < A.stumbleFirstFraction ? 'stumble01' : 'stumble02', 'stumble');
+      }
+      if (!p.grounded) {
+        const rising = game.question ? C.lanes[p.lane] < p.y : p.vy <= 0;
+        if (!rising) return result('fall', 'fall');
+        const early = game.question ? p.y - C.lanes[p.lane] > A.questionRiseSwitchPixels :
+          p.vy < -A.jumpApexVelocity;
+        return result(early ? 'jump01' : 'jump02', 'jump');
+      }
+      if (p.smile > 0 && p.smile > A.smileTimerSeconds - A.happySeconds)
+        return result('happy', 'happy');
+      if (C.maxMisses - game.misses <= A.panicRemaining) return result('panic', 'panic');
+      return result(A.runFrames[Math.floor(clock) % A.runFrames.length], 'run');
+    },
+    pose(pose, frame, reduced = false) {
+      if (!pose) return null;
+      if (reduced) return { ...pose, lift: 0, sx: 1, sy: 1, angle: 0 };
+      const A = C.characterAnimation;
+      if (['run', 'panic', 'happy'].includes(frame.state)) {
+        const phase = frame.phase * Math.PI * 2, push = Math.cos(phase);
+        return { ...pose,
+          lift: (1 - push) * 0.5 * A.runBouncePixels,
+          sx: 1 + push * A.runSquash + frame.landing * A.landingSquash,
+          sy: 1 - push * A.runSquash - frame.landing * A.landingSquash,
+          angle: A.runLean + Math.sin(phase) * A.runTilt,
+        };
+      }
+      const strength = frame.state === 'stumble' ? A.stumbleMotionStrength : A.airMotionStrength;
+      return { ...pose, lift: pose.lift * strength, angle: pose.angle * strength,
+        sx: 1 + (pose.sx - 1) * strength, sy: 1 + (pose.sy - 1) * strength };
+    },
+    bounds(key, radius, image) {
+      const A = C.characterAnimation, f = A.frames[key] || {};
+      const scale = radius * A.heightInRadii / A.sourceBodyHeight * A.scale * (f.scale ?? 1);
+      return { x: -(f.footX ?? A.sourceFootX) * scale + A.offsetX + (f.offsetX || 0),
+        y: -(f.footY ?? A.sourceFootY) * scale + A.offsetY + (f.offsetY || 0),
+        width: image.naturalWidth * scale, height: image.naturalHeight * scale, scale };
+    },
+  };
+  P.CharacterAnimation = CharacterAnimation;
   class Renderer {
     constructor(canvas) {
       this.canvas = canvas;
@@ -91,19 +152,34 @@
       this.lastPlayer = null;
       this.wasGrounded = true;
       this.landedAt = -Infinity;
-      // 画像を置いて CONFIG.useCharacterImages を true にすれば差し替え可能。
-      if (C.useCharacterImages) {
-        for (const [key, path] of Object.entries(C.characterAssets)) {
-          const image = new Image();
-          image.onload = () => {
-            this.images[key] = image;
-          };
-          image.src = path;
-        }
-      }
+      this.assetStatus = { loaded: 0, failed: [] };
+      this.ready = this.loadCharacters();
       this.resize();
       this.observer = new ResizeObserver(() => this.resize());
       this.observer.observe(canvas);
+    }
+    loadCharacters() {
+      if (!C.useCharacterImages) return Promise.resolve(this.assetStatus);
+      return Promise.all(Object.entries(C.characterAssets).map(([key, path]) => new Promise(resolve => {
+        const image = new Image();
+        let settled = false;
+        const finish = (success) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          image.onload = image.onerror = null;
+          if (success) { this.images[key] = image; this.assetStatus.loaded++; }
+          else this.assetStatus.failed.push(key);
+          resolve();
+        };
+        const timeout = setTimeout(() => finish(false), C.characterAnimation.loadTimeoutMs);
+        image.onload = async () => {
+          try { if (image.decode) await image.decode(); finish(image.naturalWidth > 0); }
+          catch { finish(false); }
+        };
+        image.onerror = () => finish(false);
+        image.src = path;
+      }))).then(() => this.assetStatus);
     }
     resize() {
       const rect = this.canvas.getBoundingClientRect();
@@ -588,21 +664,22 @@
       }
       c.restore();
     }
-    pop(x, y, r, time, player, chain, pose = null) {
+    pop(x, y, r, time, player, chain, pose = null, sprite = null) {
       const c = this.ctx;
-      let image = this.images.idle;
-      if (player.smile > 0)
-        image =
-          this.images[
-            chain >= 3 ? "chain3" : chain >= 2 ? "chain2" : "correct"
-          ] || image;
+      const frame = sprite || { key: player.smile > 0 ? 'happy' : 'run01', state: player.smile > 0 ? 'happy' : 'run', phase: 0, landing: 0 };
+      // Keep a stable Canvas character if any frame is unavailable; do not flash
+      // between PNG and Canvas on every lap when just one running frame is missing.
+      const complete = !this.assetStatus || this.assetStatus.loaded === Object.keys(C.characterAssets).length;
+      const image = complete ? this.images[frame.key] : null;
+      const displayPose = image ? CharacterAnimation.pose(pose, frame, this.reducedMotion.matches) : pose;
+      this.lastCharacterFrame = { ...frame, source: image ? 'image' : 'canvas' };
       c.save();
       c.translate(x, y);
-      if (pose) {
+      if (displayPose) {
         // PNGも図形も同じ足元原点で、同じ変形を受ける。
-        c.translate(0, -pose.lift);
-        c.rotate(pose.angle);
-        c.scale(pose.sx, pose.sy);
+        c.translate(0, -displayPose.lift);
+        c.rotate(displayPose.angle);
+        c.scale(displayPose.sx, displayPose.sy);
       } else {
         const wobble = Math.sin(time * 2.1) * 0.025;
         c.scale(1 + wobble, 1 - wobble);
@@ -610,7 +687,8 @@
       if (player.invincible > 0 && Math.floor(player.invincible * 14) % 2)
         c.globalAlpha = 0.5;
       if (image) {
-        c.drawImage(image, -r * 1.15, -r * 2.3, r * 2.3, r * 2.3);
+        const bounds = CharacterAnimation.bounds(frame.key, r, image);
+        c.drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height);
         c.restore();
         return;
       }
@@ -792,6 +870,8 @@
         : Math.sin((obstacle.age || 0) * 18 + obstacle.seed * 6.28);
       c.save();
       c.translate(x, y);
+      // Keep the bat's visible body as wide as its collision body, including high guards.
+      c.scale(obstacle.width / 36, 1);
       const dive = P.Obstacles.diveProgress(obstacle);
       if (obstacle.batType === "dive") {
         const warning = obstacle.x <= obstacle.diveStartX && dive === 0;
@@ -943,6 +1023,11 @@
         c.restore();
       }
       for (const o of game.obstacles) {
+        if (o.kind === "spikes") {
+          for (const triangle of P.Obstacles.spikeTriangles(o))
+            this.polygon(triangle, "#b7c8cf", "#e8f4f5", 1.5);
+          continue;
+        }
         if (o.kind === "spider") {
           this.spider(o, game.elapsed);
           continue;
@@ -1083,6 +1168,10 @@
       this.wasGrounded = game.player.grounded;
       const landing = Math.max(0, 1 - (game.elapsed - this.landedAt) / 0.14);
       const pose = Visual.pose(game, landing, this.reducedMotion.matches);
+      if (this.characterOrigin?.player !== game.player)
+        this.characterOrigin = { player: game.player, distance: game.distance, elapsed: game.elapsed };
+      const clock = CharacterAnimation.runClock(game, this.characterOrigin);
+      const sprite = CharacterAnimation.frame(game, clock, landing);
       const altitude =
         Math.max(0, C.lanes[game.player.lane] - game.player.y) + pose.lift;
       const shadowScale = Math.max(0.45, 1 - altitude / 240);
@@ -1123,6 +1212,7 @@
         game.player,
         game.chain,
         pose,
+        sprite,
       );
       this.foreground(game.distance * C.pixelsPerMeter, game.speed);
       c.restore();

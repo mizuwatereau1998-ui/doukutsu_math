@@ -99,7 +99,7 @@
       if (event.type === "start") {
         showMode();
         tone("start");
-        toast("↑ で上へジャンプ！　↓ で下の道へ");
+        toast(game.testMode ? `開発テスト：${game.distance}mから（記録保存なし）` : "↑ で上へジャンプ！　↓ で下の道へ");
       }
       if (event.type === "move") tone("move");
       if (
@@ -127,7 +127,9 @@
         toast(
           event.reason === "answer"
             ? `答えは ${event.answer}。だいじょうぶ、つぎへ！`
-            : event.reason === "hole"
+            : event.reason === "spikes"
+              ? "トゲだ！ ジャンプか別の段でよけよう"
+              : event.reason === "hole"
               ? "おっと、穴だ！ ↑ でとびこえよう"
               : event.reason === "bat"
                 ? "コウモリだ！ 高さを見てよけよう"
@@ -139,15 +141,17 @@
       }
       if (event.type === "over") {
         const distance = Math.floor(game.distance),
-          record = distance > bests[grade];
-        bests[grade] = Math.max(bests[grade], distance);
-        save();
+          record = !game.testMode && distance > bests[grade];
+        if (!game.testMode) {
+          bests[grade] = Math.max(bests[grade], distance);
+          save();
+        }
         $("result-distance").textContent = distance.toLocaleString("ja-JP");
         $("result-best").textContent = bests[grade].toLocaleString("ja-JP");
         $("result-grade").textContent = grade;
         $("result-correct").textContent = game.correct;
         $("result-total").textContent = game.total;
-        $("result-message").textContent = record
+        $("result-message").textContent = game.testMode ? "開発テスト：最高記録には保存されません。" : record
           ? "自己ベスト更新！ すごいぞ、ポップン。"
           : "つぎは、もっと遠くまで。";
         showMode();
@@ -156,7 +160,20 @@
   });
   // コンソールから状態を確認でき、問題生成は単独でもテストできます。
   P.game = game;
+  const requestedDistance = Number(new URLSearchParams(location.search).get('devStart'));
+  let developerDistance = [900, 1500, 2000, 3000].includes(requestedDistance) ? requestedDistance : 0;
+  // Console-only developer entry point; no extra controls in the normal game UI.
+  P.startTest = async (distance) => {
+    if (![900, 1500, 2000, 3000].includes(distance)) throw new RangeError('900 / 1500 / 2000 / 3000mを指定してください');
+    developerDistance = distance;
+    await start();
+  };
+  P.endTest = () => { developerDistance = 0; game.home(); };
   const renderer = new P.Renderer($("game-canvas"));
+  P.renderer = renderer;
+  $("start-button").disabled = true;
+  renderer.ready.then(() => { $("start-button").disabled = false; });
+  let starting = false;
   function pause(auto = false) {
     if (game.mode === "running") game.pause();
     else if (!auto && game.mode === "paused") game.resume();
@@ -172,9 +189,14 @@
       updateTitle();
     }),
   );
-  function start() {
-    game.start(grade);
-    $("start-button").blur();
+  async function start() {
+    if (starting) return;
+    starting = true;
+    try {
+      await renderer.ready;
+      game.start(grade, developerDistance);
+      $("start-button").blur();
+    } finally { starting = false; }
   }
   $("start-button").addEventListener("click", start);
   $("retry-button").addEventListener("click", () => {

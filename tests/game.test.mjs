@@ -1,3 +1,4 @@
+import { routeDirection } from "./route-driver.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import "../js/config.js";
@@ -238,7 +239,7 @@ for (const seed of [917, 1, 42, 305])
         if (game.player.lane !== target)
           game.move(game.player.lane > target ? -1 : 1);
       } else {
-        const direction=P.Obstacles.avoidance(game.player,game.obstacles,game.speed);
+        const direction=routeDirection(game);
         if(direction)game.move(direction);
       }
       game.update(C.fixedStep);
@@ -294,7 +295,7 @@ test("岩盤の装飾は障害物と同じ移動量を保ち、背景は遠い�
       r.ground < r.foreground,
   );
 });
-test("PNGと図形は同じ変形を受け、描画を繰り返してもゲーム状態を変更しない", () => {
+test("PNGと図形は共通の足元を使い、描画を繰り返してもゲーム状態を変更しない", () => {
   const calls = [];
   const ctx = new Proxy(
     {},
@@ -324,12 +325,10 @@ test("PNGと図形は同じ変形を受け、描画を繰り返してもゲー�
   renderer.pop(310, 560, 27, 1, g.player, 0, pose);
   const transforms = calls.filter((c) => c[0] !== "drawImage");
   calls.length = 0;
-  renderer.images.idle = {};
+  renderer.images.run01 = { naturalWidth: 512, naturalHeight: 512 };
   renderer.pop(310, 560, 27, 1, g.player, 0, pose);
-  assert.deepEqual(
-    calls.filter((c) => c[0] !== "drawImage"),
-    transforms,
-  );
+  assert.deepEqual(calls[0], transforms[0], '足元の平行移動は共通');
+  assert.ok(Math.abs(calls.find(c=>c[0]==='rotate')[1]) < Math.abs(pose.angle), '画像の傾きは控えめ');
   assert.ok(calls.some((c) => c[0] === "drawImage"));
   g.misses = 3;
   g.player.invincible = 0.6;
@@ -363,7 +362,7 @@ test("150mの節目で出題し、重複せず、終了後は休止区間を守�
   for (let i = 0; i < 20 / C.fixedStep && !g.question; i++) {
     if (g.elapsed - ended < C.questionRestSeconds - C.fixedStep)
       assert.equal(g.question, null);
-    const direction = P.Obstacles.avoidance(g.player, g.obstacles, g.speed);
+    const direction = routeDirection(g);
     if (direction) g.move(direction);
     g.update(C.fixedStep);
   }
@@ -391,7 +390,7 @@ test("問題直前は障害物を突然消さず、通過後に問題を開始�
   assert.equal(g.question, null);
   assert.ok(g.obstacles.includes(bat));
   for (let i = 0; i < 240 && !g.question; i++) {
-    const d = P.Obstacles.avoidance(g.player, g.obstacles, g.speed);
+    const d = routeDirection(g);
     if (d) g.move(d);
     g.update(C.fixedStep);
   }
@@ -477,7 +476,7 @@ for (const seed of [17, 81, 291, 832])
     g.nextQuestionDistance = Infinity;
     const seen = new Set();
     for (let i = 0; i < 90 / C.fixedStep; i++) {
-      const direction = P.Obstacles.avoidance(g.player, g.obstacles, g.speed);
+      const direction = routeDirection(g);
       if (direction) g.move(direction);
       g.update(C.fixedStep);
       for (const o of g.obstacles) seen.add(o.kind);
@@ -486,7 +485,7 @@ for (const seed of [17, 81, 291, 832])
     assert.equal(seen.size, 4);
   });
 
-test("序盤のパターンは単独と2連続を含み、中盤以降に急降下・群れ・3連続が増える", () => {
+test("序盤は単独と2連続を維持し、後半は5波の同時封鎖になる", () => {
   const rng = seeded(201),
     player = P.Physics.createPlayer();
   const early = new Set(),
@@ -496,11 +495,11 @@ test("序盤のパターンは単独と2連続を含み、中盤以降に急降�
     early.add(a.length);
     assert.ok(a.length >= 1 && a.length <= 3);
     const b = P.Obstacles.createPattern(6000, player, rng);
-    late.add(b.length);
+    late.add(new Set(b.map(o=>o.wave)).size);
     for (const o of b) if (o.kind === "bat") late.add(o.batType);
   }
   assert.ok(early.has(1) && early.has(2));
-  for (const type of [1, 2, 3, "normal", "dive", "flock"])
+  for (const type of [5, "normal"])
     assert.ok(late.has(type));
 });
 test("予備動作後に急降下し、通過前に狙った高さへ落ち着く。描画と衝突面は共通", () => {
@@ -612,7 +611,7 @@ test("抽選が外れ続ける場合でも、最初と空振りパターン後�
   for (let i = 0; i < 45 / C.fixedStep; i++) {
     if (g.question) g.player.lane = answerLane(g);
     else {
-      const direction = P.Obstacles.avoidance(g.player, g.obstacles, g.speed);
+      const direction = routeDirection(g);
       if (direction) g.move(direction);
     }
     g.update(C.fixedStep);
@@ -765,4 +764,186 @@ test("常設3段ではクモを含む連続配置が十分生成され、最上�
     }
   assert.ok(spiders >= 280);
   assert.ok(topBats >= 250);
+});
+
+test("3段の経路探索は全段封鎖を拒否し、入力状態と障害物を書き換えない", () => {
+  const p = P.Physics.createPlayer(); p.topLane = 0;
+  const blockers = [
+    {kind:'stalactite', lane:1, x:900, width:1000, age:0, seed:0},
+    {kind:'hole', lane:2, x:900, width:1000, age:0, seed:0},
+  ];
+  const before = JSON.stringify([p, blockers]);
+  assert.equal(P.Obstacles.findRoute(p, blockers, 2500), null);
+  assert.equal(JSON.stringify([p, blockers]), before);
+});
+test("3段専用配置は2段同時到達を保ち、加速・クモの予告を含む", () => {
+  const p = P.Physics.createPlayer(); p.topLane = 0;
+  const group = P.Obstacles.plan(2500, 420, p, [], seeded(504), false, null, 'spider');
+  assert.ok(group.length >= 8);
+  assert.equal(new Set(group.map(o=>o.wave)).size,4);
+  for (let wave=0; wave<4; wave++) {
+    const pair = group.filter(o=>o.wave===wave);
+    const times = pair.map(o=>(o.x-C.playerX)/(420*P.Obstacles.speedFactor(o)));
+    assert.ok(Math.abs(times[0]-times[1])<1e-9);
+    assert.equal(new Set(pair.map(o=>o.lane)).size,2);
+    assert.ok(pair.every(o=>o.lane!==o.safeLane));
+  }
+  for(const o of group.filter(o=>o.kind==='spider')) {
+    o.x = o.spiderStartX - o.spiderRate * C.spiderWarningSeconds / 2;
+    assert.equal(P.Obstacles.spiderPose(o).phase,'warning');
+  }
+});
+test("3段で経路がない場合は単独障害物へ弱めず、既存障害物を保持する", () => {
+  const p=P.Physics.createPlayer();p.topLane=0;
+  const existing=[{kind:'stalactite',lane:1,x:900,width:1000,age:0,seed:0},
+    {kind:'hole',lane:2,x:900,width:1000,age:0,seed:0}];
+  const before=JSON.stringify(existing),stats={rejected:0,fallback:0};
+  assert.deepEqual(P.Obstacles.plan(2500,420,p,existing,seeded(2),false,stats),[]);
+  assert.equal(stats.rejected,C.advancedAttempts);
+  assert.equal(stats.empty,1);
+  assert.equal(JSON.stringify(existing),before);
+});
+
+test("トゲは描画と同じ三角形に円の本体で接触判定し、矩形の空白を判定しない", () => {
+  const o={kind:'spikes',lane:1,x:C.playerX-10,width:20};
+  const p={...P.Physics.createPlayer(),lane:1,y:C.lanes[1]};
+  assert.equal(P.Obstacles.hits(o,p),true);
+  p.y=C.lanes[1]-C.spikeHeight-2;
+  assert.equal(P.Obstacles.hits(o,p),false,'先端より上は安全');
+  p.y=C.lanes[1]-C.spikeHeight+6;
+  assert.equal(P.Obstacles.hits(o,p),true,'先端の接触を検出');
+  const t=P.Obstacles.spikeTriangles(o)[0];
+  assert.deepEqual(t,[[300,435],[310,405],[320,435]]);
+  assert.equal(P.Obstacles.triangleTouchesCircle(t,301,407,1),false);
+  assert.equal(P.Obstacles.triangleTouchesCircle(t,310,407,1),true);
+  p.y=C.lanes[1];p.invincible=1;
+  assert.equal(P.Obstacles.hits(o,p),false);
+});
+test("トゲは段の番号ではなく空中・下降中の本体位置で判定する", () => {
+  const o={kind:'spikes',lane:1,x:C.playerX-20,width:60};
+  const p={...P.Physics.createPlayer(),lane:2,y:C.lanes[1],grounded:false,vy:200};
+  assert.equal(P.Obstacles.hits(o,p),true,'下段へ下降中でも中段のトゲに接触する');
+  p.lane=1;p.y=C.lanes[1]-80;p.vy=-200;
+  assert.equal(P.Obstacles.hits(o,p),false,'ジャンプ中に上を越えれば安全');
+  p.y=C.lanes[1]+C.playerRadius*2+5;
+  assert.equal(P.Obstacles.hits(o,p),false,'本体がトゲより下なら安全');
+});
+test("トゲを同じ段のジャンプで越えられるが、走り続けると接触する", () => {
+  for(const jump of [false,true]) {
+    const p={...P.Physics.createPlayer(),lane:1,topLane:1,y:C.lanes[1]};
+    const o={kind:'spikes',lane:1,x:C.playerX+180,width:76};
+    if(jump)assert.ok(P.Physics.move(p,-1,null));
+    let collided=false;
+    for(let step=0;step<100;step++){
+      P.Physics.update(p,C.fixedStep,null);o.x-=500*C.fixedStep;
+      collided ||= P.Obstacles.hits(o,p);
+    }
+    assert.equal(collided,!jump);
+  }
+});
+test("生成する穴は最下段のみ。上・中段はトゲへ変換する",()=>{
+  for(const distance of [0,899,900,1500,2000,3000]){
+    const rng=seeded(distance+1),p=P.Physics.createPlayer();
+    for(let i=0;i<100;i++){
+      for(const o of [P.Obstacles.create(distance,rng),...P.Obstacles.createPattern(distance,p,rng)])
+        if(o.kind==='hole')assert.equal(o.lane,2);
+    }
+  }
+});
+test("移動ごとの必要時間を分け、2段上昇には2入力と着地の時間を確保する",()=>{
+  const oneUp=P.Obstacles.transitionSeconds(2,1,2000);
+  const twoUp=P.Obstacles.transitionSeconds(2,0,2000);
+  const down=P.Obstacles.transitionSeconds(0,1,2000);
+  assert.ok(P.Obstacles.transitionSeconds(2,1,3000)<oneUp);
+  assert.ok(twoUp>oneUp+0.5);assert.ok(oneUp>down);
+  assert.ok(P.Obstacles.transitionSeconds(0,2,2000)>down);
+  assert.ok(P.Obstacles.transitionSeconds(1,1,3000)>=2*Math.abs(C.jumpVelocity)/C.gravity);
+});
+test("開発用距離開始はテストモードを明示し、通常の新規開始で解除する",()=>{
+  const g=new P.Game();
+  for(const distance of [900,1500,2000,3000]){
+    g.start(4,distance);assert.equal(g.distance,distance);assert.equal(g.testMode,true);
+    assert.equal(g.player.topLane,0);assert.ok(g.nextQuestionDistance>distance);
+    g.beginQuestion();assert.equal(g.question.duration,6);
+  }
+  g.start(3);assert.equal(g.distance,0);assert.equal(g.testMode,false);
+  assert.throws(()=>g.start(3,1234),RangeError);
+});
+
+test('画像走行は01→02→03→04で循環し、速度に応じ10〜16fpsになる',()=>{
+ const g=new P.Game();g.start(3);const A=P.CharacterAnimation;
+ assert.deepEqual([0,1,2,3,4,5].map(t=>A.frame(g,t).key),['run01','run02','run03','run04','run01','run02']);
+ assert.equal(A.runFps(C.startSpeed),10);assert.equal(A.runFps(C.maxSpeed),16);
+ for(const speed of [C.startSpeed,365,C.maxSpeed]){
+  g.elapsed=2;g.distance=speed*2/C.pixelsPerMeter;
+  assert.ok(Math.abs(A.runClock(g)-A.runFps(speed)*2)<1e-9);
+ }
+ const origin={distance:g.distance,elapsed:g.elapsed};assert.equal(A.runClock(g,origin),0);
+ const snapshot=JSON.stringify(g);g.pause();const clock=A.runClock(g);g.update(1);
+ assert.equal(A.runClock(g),clock);assert.equal(JSON.stringify({...g,mode:'running'}),snapshot);
+});
+test('画像の優先順位は転倒→上昇/下降→喜び→焦り→走行。描画状態は物理を変更しない',()=>{
+ const g=new P.Game();g.start(3);const A=P.CharacterAnimation,p=g.player;
+ p.smile=1.7;g.misses=4;p.grounded=false;p.vy=-660;p.stumble=.48;
+ const before=JSON.stringify(g);
+ assert.equal(A.frame(g).key,'stumble01');assert.equal(JSON.stringify(g),before);
+ p.stumble=.1;assert.equal(A.frame(g).key,'stumble02');
+ p.stumble=0;assert.equal(A.frame(g).key,'jump01');
+ p.vy=-100;assert.equal(A.frame(g).key,'jump02');
+ p.vy=0;assert.equal(A.frame(g).key,'jump02');
+ p.vy=1;assert.equal(A.frame(g).key,'fall');
+ p.grounded=true;assert.equal(A.frame(g).key,'happy');
+ p.smile=1.7-C.characterAnimation.happySeconds-.001;assert.equal(A.frame(g).key,'panic');
+ g.misses=2;assert.equal(A.frame(g).key,'run01');
+ g.misses=3;assert.equal(A.frame(g).key,'panic');
+});
+test('算数の上下移動も実際の高さを見て上昇/下降画像を選ぶ',()=>{
+ const g=new P.Game();g.start(3);g.beginQuestion();const p=g.player;
+ p.grounded=false;p.vy=0;p.lane=1;p.y=C.lanes[1]+60;
+ assert.equal(P.CharacterAnimation.frame(g).key,'jump01');
+ p.y=C.lanes[1]+10;assert.equal(P.CharacterAnimation.frame(g).key,'jump02');
+ p.y=C.lanes[1]-50;assert.equal(P.CharacterAnimation.frame(g).key,'fall');
+});
+test('11画像は共通倍率、画像別の足元を基準に置き、透明余白で拡縮しない',()=>{
+ const A=P.CharacterAnimation,config=C.characterAnimation;
+ assert.equal(Object.keys(C.characterAssets).length,11);
+ const scales=new Set();
+ for(const key of Object.keys(C.characterAssets)){
+  assert.ok(C.characterAssets[key].startsWith('assets/characters/popn_'));
+  const b=A.bounds(key,C.playerRadius,{naturalWidth:512,naturalHeight:512});
+  const f=config.frames[key];scales.add(b.scale);
+  assert.ok(Math.abs(b.x+config.sourceFootX*b.scale)<1e-9);
+  assert.ok(Math.abs(b.y+f.footY*b.scale)<1e-9);
+ }
+ assert.equal(scales.size,1);
+});
+test('PNGの変形は小さく、焦りも動き続け、視差効果を減らす設定でも状態画像は維持する',()=>{
+ const g=new P.Game();g.start(3);g.misses=3;
+ const frame=P.CharacterAnimation.frame(g,1),original=P.Visual.pose(g);
+ assert.equal(frame.key,'panic');
+ const pose=P.CharacterAnimation.pose(original,frame);
+ assert.ok(pose.lift>0 && pose.lift<=C.characterAnimation.runBouncePixels);
+ assert.ok(Math.abs(pose.angle)<=.04);
+ const reduced=P.CharacterAnimation.pose(original,frame,true);
+ assert.deepEqual([reduced.lift,reduced.angle,reduced.sx,reduced.sy],[0,0,1,1]);
+ g.player.grounded=false;g.player.vy=-660;
+ assert.equal(P.CharacterAnimation.frame(g).key,'jump01');
+});
+test('画像の事前ロードは11枚を待ち、読み込みエラーでも正常完了する',async()=>{
+ const PreviousImage=globalThis.Image,created=[];
+ globalThis.Image=class {
+  constructor(){this.naturalWidth=512;this.naturalHeight=512;created.push(this);}
+  set src(value){this.path=value;}
+  async decode(){}
+ };
+ try{
+  const renderer=Object.create(P.Renderer.prototype);
+  Object.assign(renderer,{images:{},assetStatus:{loaded:0,failed:[]}});
+  let ready=false;const loading=renderer.loadCharacters().then(()=>{ready=true;});
+  assert.equal(created.length,11);assert.equal(ready,false);
+  await Promise.all(created.slice(0,10).map(i=>i.onload()));
+  assert.equal(ready,false);created[10].onerror();await loading;
+  assert.equal(renderer.assetStatus.loaded,10);assert.deepEqual(renderer.assetStatus.failed,['happy']);
+  assert.equal(Object.keys(renderer.images).length,10);
+ }finally{globalThis.Image=PreviousImage;}
 });

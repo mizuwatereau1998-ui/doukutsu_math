@@ -1,0 +1,252 @@
+[
+  {
+    "distance": 900,
+    "trials": 90,
+    "patterns": 90,
+    "obstacles": 216,
+    "types": {
+      "three-bats-chain": 16,
+      "three-bats-pair": 55,
+      "three-spider-pair": 17,
+      "three-spider-chain": 2
+    },
+    "rejected": 0,
+    "retried": 0,
+    "empty": 0,
+    "simultaneous": 90,
+    "switching": 18,
+    "spiderBat": 18,
+    "inputs": 106,
+    "lanes": [
+      0,
+      1,
+      2
+    ],
+    "maxPlanMs": 15.27,
+    "runs": [
+      {
+        "seed": 17,
+        "patterns": 12,
+        "questions": 7,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 13.17,
+        "maxActionBlank": 0.7
+      },
+      {
+        "seed": 81,
+        "patterns": 12,
+        "questions": 7,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 12.96,
+        "maxActionBlank": 0.7
+      },
+      {
+        "seed": 291,
+        "patterns": 12,
+        "questions": 7,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 12.77,
+        "maxActionBlank": 0.72
+      },
+      {
+        "seed": 832,
+        "patterns": 14,
+        "questions": 7,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 11.92,
+        "maxActionBlank": 0.71
+      }
+    ]
+  },
+  {
+    "distance": 1200,
+    "trials": 90,
+    "patterns": 90,
+    "obstacles": 436,
+    "types": {
+      "three-bats-chain": 37,
+      "three-spider-chain": 27,
+      "three-spider-pair": 5,
+      "three-bats-pair": 21
+    },
+    "rejected": 0,
+    "retried": 0,
+    "empty": 0,
+    "simultaneous": 90,
+    "switching": 64,
+    "spiderBat": 32,
+    "inputs": 224,
+    "lanes": [
+      0,
+      1,
+      2
+    ],
+    "maxPlanMs": 7.14,
+    "runs": [
+      {
+        "seed": 17,
+        "patterns": 8,
+        "questions": 7,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 13.52,
+        "maxActionBlank": 0.71
+      },
+      {
+        "seed": 81,
+        "patterns": 9,
+        "questions": 7,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 11.62,
+        "maxActionBlank": 0.69
+      },
+      {
+        "seed": 291,
+        "patterns": 8,
+        "questions": 7,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 13.42,
+        "maxActionBlank": 0.71
+      },
+      {
+        "seed": 832,
+        "patterns": 9,
+        "questions": 7,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 14.96,
+        "maxActionBlank": 0.75
+      }
+    ]
+  },
+  {
+    "distance": 1800,
+    "trials": 90,
+    "patterns": 90,
+    "obstacles": 492,
+    "types": {
+      "three-bats-chain": 14,
+      "three-spider-chain": 64,
+      "three-bats-pair": 7,
+      "three-spider-pair": 5
+    },
+    "rejected": 0,
+    "retried": 0,
+    "empty": 0,
+    "simultaneous": 90,
+    "switching": 78,
+    "spiderBat": 69,
+    "inputs": 266,
+    "lanes": [
+      0,
+      1,
+      2
+    ],
+    "maxPlanMs": 4.08,
+    "runs": [
+      {
+        "seed": 17,
+        "patterns": 8,
+        "questions": 8,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 13.2,
+        "maxActionBlank": 0.69
+      },
+      {
+        "seed": 81,
+        "patterns": 8,
+        "questions": 8,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 13.2,
+        "maxActionBlank": 0.68
+      },
+      {
+        "seed": 291,
+        "patterns": 8,
+        "questions": 8,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 13.11,
+        "maxActionBlank": 0.69
+      },
+      {
+        "seed": 832,
+        "patterns": 9,
+        "questions": 7,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 14.72,
+        "maxActionBlank": 0.71
+      }
+    ]
+  },
+  {
+    "distance": 2500,
+    "trials": 90,
+    "patterns": 90,
+    "obstacles": 720,
+    "types": {
+      "three-spider-chain": 86,
+      "three-bats-chain": 4
+    },
+    "rejected": 0,
+    "retried": 0,
+    "empty": 0,
+    "simultaneous": 90,
+    "switching": 90,
+    "spiderBat": 86,
+    "inputs": 363,
+    "lanes": [
+      0,
+      1,
+      2
+    ],
+    "maxPlanMs": 4.39,
+    "runs": [
+      {
+        "seed": 17,
+        "patterns": 8,
+        "questions": 7,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 14.7,
+        "maxActionBlank": 0.68
+      },
+      {
+        "seed": 81,
+        "patterns": 8,
+        "questions": 7,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 14.7,
+        "maxActionBlank": 0.68
+      },
+      {
+        "seed": 291,
+        "patterns": 8,
+        "questions": 7,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 14.85,
+        "maxActionBlank": 0.68
+      },
+      {
+        "seed": 832,
+        "patterns": 8,
+        "questions": 7,
+        "rejected": 0,
+        "empty": 0,
+        "longestGap": 14.7,
+        "maxActionBlank": 0.72
+      }
+    ]
+  }
+]

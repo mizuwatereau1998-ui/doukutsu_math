@@ -36,8 +36,16 @@
       this.shake = 0;
       this.flash = 0;
     }
-    start(grade) {
+    start(grade, testDistance = 0) {
+      if (![0, 900, 1500, 2000, 3000].includes(testDistance))
+        throw new RangeError('Unsupported test distance');
       this.reset(grade);
+      this.testMode = testDistance > 0;
+      this.distance = testDistance;
+      this.speed = C.startSpeed + (C.maxSpeed - C.startSpeed) *
+        (1 - Math.exp(-this.distance / C.speedGrowthDistance));
+      this.nextQuestionDistance = (Math.floor(this.distance / C.questionIntervalMeters) + 1) * C.questionIntervalMeters;
+      this.syncLanes();
       this.mode = "running";
       this.emit("start");
     }
@@ -220,6 +228,7 @@
               this.patternsWithoutSpider >= C.spiderMaxDryPatterns
               ? "spider"
               : C.introBatTypes[this.introBatIndex] || null,
+            C.fixedStep,
           );
           this.obstacles.push(...group);
           if (group.length) {

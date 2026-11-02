@@ -112,6 +112,22 @@ with sync_playwright() as p:
     print('PASS: 自然なゲーム進行で開始2.4秒後にコウモリが画面内に登場',flush=True)
 
 
+    # 3段専用配置を実際のGame生成とCanvas描画へ通す。
+    page.evaluate("""() => {
+      const g=PopEscape.game,C=PopEscape.CONFIG;
+      g.start(4);g.distance=2500;g.syncLanes();
+      g.speed=C.startSpeed+(C.maxSpeed-C.startSpeed)*(1-Math.exp(-g.distance/C.speedGrowthDistance));
+      g.nextQuestionDistance=Infinity;g.obstacleTimer=0;
+      g.update(C.fixedStep);g.pause();
+    }""")
+    assert page.evaluate('PopEscape.game.obstacles.length') >= 8
+    assert page.evaluate('new Set(PopEscape.game.obstacles.map(o=>o.wave)).size') == 4
+    assert page.evaluate('PopEscape.game.obstacles.every(o=>o.lane!==o.safeLane)')
+    page.wait_for_timeout(100)
+    assert not errors, errors
+    page.screenshot(path='/tmp/poppun-three-lanes.png',full_page=True)
+    print('PASS: 2500mの3段専用・2段同時封鎖×4波の生成とCanvas描画',flush=True)
+
     mobile = browser.new_context(viewport={'width': 844, 'height': 390}, device_scale_factor=2, is_mobile=True, has_touch=True)
     mp = mobile.new_page()
     mp.on('pageerror', lambda error: errors.append(str(error)))
@@ -125,7 +141,7 @@ with sync_playwright() as p:
     assert mp.evaluate('PopEscape.game.player.lane') == 2
     mp.wait_for_timeout(500)
     mp.evaluate("""() => {
-      const g=PopEscape.game;g.nextQuestionDistance=99999;
+      const g=PopEscape.game;g.nextQuestionDistance=99999;g.obstacleTimer=Infinity;
       g.obstacles=[{kind:'bat',lane:2,x:800,width:36,age:0,seed:0}];
     }""")
     mp.wait_for_timeout(100)
@@ -141,6 +157,7 @@ with sync_playwright() as p:
     mp.evaluate("""() => {
       const g=PopEscape.game, C=PopEscape.CONFIG;
       g.distance=2500;
+      g.speed=C.startSpeed+(C.maxSpeed-C.startSpeed)*(1-Math.exp(-g.distance/C.speedGrowthDistance));
       const rate=g.speed*C.batSpeedFactor;
       g.obstacles=[{kind:'bat',batType:'dive',lane:2,width:36,seed:0,age:0,
         x:800,diveRate:rate,diveStartX:805},
@@ -169,6 +186,41 @@ with sync_playwright() as p:
     mp.wait_for_function('PopEscape.game.mode === "paused"')
     assert not errors, errors
     print('PASS: スマホ横向き・短い上下スワイプ・3段移動・スクロール抑制・縦向き自動停止', flush=True)
+
+    dev = context.new_page()
+    dev.on('pageerror', lambda error: errors.append(str(error)))
+    dev.goto(BASE + '/?devStart=3000',wait_until='networkidle')
+    stored = dev.evaluate('localStorage.getItem(PopEscape.CONFIG.storageKey)')
+    dev.click('#start-button')
+    assert dev.evaluate('PopEscape.game.testMode && PopEscape.game.distance>=3000')
+    dev.evaluate("""() => {
+      const g=PopEscape.game;
+      for(let i=0;i<5;i++){g.player.invincible=0;g.miss('spikes');}
+    }""")
+    assert dev.locator('#result-screen').is_visible()
+    assert '保存されません' in dev.locator('#result-message').inner_text()
+    assert dev.evaluate('localStorage.getItem(PopEscape.CONFIG.storageKey)') == stored
+    dev.click('#retry-button')
+    assert dev.evaluate('PopEscape.game.testMode && PopEscape.game.distance>=3000')
+    for distance in [900,1500,2000,3000]:
+        dev.evaluate('(d)=>PopEscape.startTest(d)',distance)
+        assert dev.evaluate('PopEscape.game.testMode && PopEscape.game.player.topLane===0')
+        assert dev.evaluate('PopEscape.game.distance') == distance
+    dev.evaluate('PopEscape.endTest()')
+    dev.click('#start-button')
+    assert dev.evaluate('!PopEscape.game.testMode && PopEscape.game.distance<20')
+    dev.evaluate("""() => {
+      const g=PopEscape.game;
+      g.distance=3000;g.syncLanes();g.nextQuestionDistance=Infinity;g.obstacleReadyAt=Infinity;
+      g.obstacles=[{kind:'spikes',lane:0,x:700,width:100,age:0},
+        {kind:'spikes',lane:1,x:900,width:100,age:0},
+        {kind:'hole',lane:2,x:1050,width:100,age:0}];
+    }""")
+    dev.wait_for_timeout(100)
+    dev.screenshot(path='/tmp/poppun-spikes.png',full_page=True)
+    assert not errors, errors
+    print('PASS: 開発用4距離・再挑戦・通常モード復帰・最高記録非保存・トゲCanvas描画',flush=True)
+    dev.close()
 
     direct = context.new_page()
     direct.on('pageerror', lambda error: errors.append(str(error)))

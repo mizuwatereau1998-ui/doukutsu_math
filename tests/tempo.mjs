@@ -1,3 +1,4 @@
+import { routeDirection } from "./route-driver.mjs";
 import "../js/config.js";
 import "../js/math.js";
 import "../js/physics.js";
@@ -54,7 +55,7 @@ export function simulate(seed, seconds) {
         (q.choices.length === 3 ? 0 : 1);
       if (g.player.lane !== lane) g.move(lane < g.player.lane ? -1 : 1);
     } else {
-      const direction = P.Obstacles.avoidance(g.player, g.obstacles, g.speed);
+      const direction = routeDirection(g);
       if (direction) g.move(direction);
     }
     g.update(C.fixedStep);
