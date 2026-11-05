@@ -10,7 +10,7 @@ with sync_playwright() as p:
     page.on('pageerror',lambda error:errors.append(str(error)))
     page.goto(BASE,wait_until='networkidle')
     status=page.evaluate('PopEscape.renderer.assetsReady')
-    assert status==[{'loaded':11,'failed':[]},{'loaded':8,'failed':[]},{'loaded':4,'failed':[]}],status
+    assert status==[{'loaded':11,'failed':[]},{'loaded':8,'failed':[]},{'loaded':7,'failed':[]}],status
     assert page.evaluate('Object.values(PopEscape.renderer.monsterImages).every(i=>i.naturalWidth===512&&i.naturalHeight===512)')
     page.click('#start-button')
     page.evaluate('PopEscape.game.obstacles=[];PopEscape.game.obstacleReadyAt=Infinity;PopEscape.game.nextQuestionDistance=Infinity')

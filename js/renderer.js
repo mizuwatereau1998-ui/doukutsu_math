@@ -484,6 +484,26 @@
     background(distance, time, title) {
       const c = this.ctx,
         offset = distance * C.pixelsPerMeter;
+      const image = this.caveImages?.background;
+      if (image) {
+        const A = C.caveVisuals.background;
+        const scale = Math.max(C.width / image.naturalWidth, C.height / image.naturalHeight) * Math.max(1, A.scale);
+        const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
+        const scroll = (title ? 0 : offset * A.parallax) - A.offsetX;
+        const first = Math.floor(scroll / width);
+        c.fillStyle = '#060d25';
+        c.fillRect(0, 0, C.width, C.height);
+        // 端が連続する反転ループ。背景だけが遠景の速度で動く。
+        for (let n = first; n * width - scroll < C.width; n++) {
+          const x = n * width - scroll;
+          c.save();
+          c.translate(x + (n % 2 ? width : 0), (C.height - height) / 2 + A.offsetY);
+          c.scale(n % 2 ? -1 : 1, 1);
+          c.drawImage(image, 0, 0, width, height);
+          c.restore();
+        }
+        return;
+      }
       const hue = title ? 178 : 178 + Math.sin(distance / 1500) * 28;
       const gradient = c.createLinearGradient(0, 0, 0, 720);
       gradient.addColorStop(0, `hsl(${hue + 17}, 43%, 15%)`);
@@ -944,10 +964,38 @@
       }
       c.restore();
     }
-    terrain(x, y, width, lane, scroll) {
+    groundTile(index, x, y, width, depth) {
+      const A = C.caveVisuals.ground, image = this.caveImages.ground;
+      const [sx, sy, sw, sh] = A.frames[index];
+      const scaleY = depth / (sy + sh - A.surfaceY);
+      this.ctx.drawImage(image, sx, sy, sw, sh, x,
+        y + A.offsetY - (A.surfaceY - sy) * scaleY, width, sh * scaleY);
+    }
+    terrain(x, y, width, lane, scroll, leftPit = false, rightPit = false) {
       if (width <= 0) return;
       const c = this.ctx,
         floor = lane === 2;
+      if (this.caveImages?.ground) {
+        const A = C.caveVisuals.ground;
+        const depth = (floor ? A.floorDepth : A.floatingDepth) * A.scale;
+        const tileWidth = A.tileWidth * A.scale;
+        const edgeWidth = Math.min(A.edgeWidth * A.scale, width / (leftPit && rightPit ? 2 : 1));
+        const left = leftPit ? edgeWidth : 0, right = rightPit ? edgeWidth : 0;
+        // 通常タイルはワールド座標で反復し、穴や端タイルの領域へはみ出させない。
+        c.save();
+        c.beginPath();
+        c.rect(x + left, 0, Math.max(0, width - left - right), C.height);
+        c.clip();
+        const first = Math.floor((scroll + Math.max(-tileWidth, x + left)) / tileWidth);
+        const end = Math.min(C.width + tileWidth, x + width - right);
+        for (let n = first; n * tileWidth - scroll < end; n++)
+          this.groundTile(1, n * tileWidth - scroll, y, tileWidth, depth);
+        c.restore();
+        // 穴の右岸は右穴端（2）、左岸は左穴端（0）。透明な崖を穴側に向ける。
+        if (leftPit) this.groundTile(2, x, y, left, depth);
+        if (rightPit) this.groundTile(0, x + width - right, y, right, depth);
+        return;
+      }
       const depth = floor ? 170 : 34;
       c.save();
       // 穴を跨いで装飾しない。上端yは従来の衝突面と完全に同じ。
@@ -1029,6 +1077,8 @@
       c.restore();
     }
     foreground(scroll, speed) {
+      // 新背景には手前の岩も含まれるので、仮の三角形を重ねない。
+      if (this.caveImages?.background) return;
       const c = this.ctx,
         ratio = Visual.parallax.foreground;
       const first = Math.floor((scroll * ratio) / 290);
@@ -1219,27 +1269,33 @@
         if (lane === 0 && game.player.topLane !== 0) c.globalAlpha = preview;
         const y = C.lanes[lane];
         const holes = game.obstacles
-          .filter((o) => o.kind === "hole" && o.lane === lane)
-          .sort((a, b) => a.x - b.x);
+          .filter((o) => o.kind === "hole" && o.lane === lane && o.x < 1300 && o.x + o.width > -20)
+          .sort((a, b) => a.x - b.x)
+          .reduce((ranges, o) => {
+            const last = ranges[ranges.length - 1];
+            if (last && o.x <= last.x + last.width)
+              last.width = Math.max(last.x + last.width, o.x + o.width) - last.x;
+            else ranges.push({ x: o.x, width: o.width });
+            return ranges;
+          }, []);
+        // 穴の奥は背景より手前、地面・キャラクターより奥。三角形は描かない。
+        for (const hole of holes) {
+          const A = C.caveVisuals.pit, pit = this.caveImages?.pit;
+          c.save();
+          c.globalAlpha *= A.opacity;
+          if (pit) c.drawImage(pit, ...A.source, hole.x, y + A.offsetY, hole.width, C.height - y);
+          else { c.fillStyle = '#060c22'; c.fillRect(hole.x, y, hole.width, C.height - y); }
+          c.restore();
+        }
         let start = -20;
+        let leftPit = false;
         for (const hole of holes) {
           if (hole.x > start)
-            this.terrain(start, y, hole.x - start, lane, scroll);
-          this.polygon(
-            [
-              [hole.x, y + 10],
-              [hole.x + hole.width, y + 10],
-              [hole.x + hole.width * 0.5, y + 95],
-            ],
-            "#071b2c70",
-          );
-          // くっきりした縁と小さな警告色。
-          c.fillStyle = "#e5be76";
-          c.fillRect(hole.x - 12, y - 1, 12, 5);
-          c.fillRect(hole.x + hole.width, y - 1, 12, 5);
+            this.terrain(start, y, hole.x - start, lane, scroll, leftPit, true);
           start = hole.x + hole.width;
+          leftPit = true;
         }
-        if (start < 1300) this.terrain(start, y, 1300 - start, lane, scroll);
+        if (start < 1300) this.terrain(start, y, 1300 - start, lane, scroll, leftPit);
         c.restore();
       }
       for (const o of game.obstacles) {

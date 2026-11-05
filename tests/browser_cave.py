@@ -59,7 +59,7 @@ with sync_playwright() as p:
               batFrames:bats.map(d=>d.args[0]),spiders};
           } finally {r.ctx.drawImage=original;}
         }''')
-        assert result['status'] == {'loaded':4,'failed':[]}, result
+        assert result['status'] == {'loaded':7,'failed':[]}, result
         assert result['pop']['loaded'] == 11 and result['monster']['loaded'] == 8, result
         assert result['batFrames'][0] != result['batFrames'][1] != result['batFrames'][2], result
         assert result['batFrames'][1] == result['batFrames'][3], result
@@ -76,7 +76,7 @@ with sync_playwright() as p:
     page.route('**/assets/enemies/**',lambda route:route.abort())
     page.goto(BASE,wait_until='networkidle')
     page.click('#start-button')
-    assert page.evaluate('PopEscape.renderer.caveAssetStatus.failed.length===4 && PopEscape.game.mode==="running"')
+    assert page.evaluate('PopEscape.renderer.caveAssetStatus.failed.length===7 && PopEscape.game.mode==="running"')
     page.evaluate('''() => {
       const g=PopEscape.game,r=PopEscape.renderer;
       g.pause();g.obstacles=[{kind:'spikes',lane:1,x:600,width:80},
@@ -84,5 +84,5 @@ with sync_playwright() as p:
         {kind:'spider',lane:2,x:700,width:36,spiderStartX:820,spiderRate:100}];
       r.tracks(g);
     }''')
-    print('PASS: all four missing images fall back to Canvas without blocking play',flush=True)
+    print('PASS: all seven missing images fall back to Canvas without blocking play',flush=True)
     browser.close()
