@@ -5,6 +5,16 @@
   P.CONFIG = Object.freeze({
     width: 1280,
     height: 720,
+    audio: Object.freeze({
+      storageKey: 'poppun-audio-v1',
+      musicUrl: 'assets/audio/cave-adventure.mp3',
+      tensionUrl: 'assets/audio/cave-tension.mp3',
+      loopStart: 0, loopEnd: 32 * 4 * 60 / 132,
+      masterVolume: 0.8, bgmVolume: 0.5, sfxVolume: 0.7,
+      questionVolume: 0.7, tensionFadeSeconds: 0.85,
+      // 同じキーでMP3等を指定すると、合成効果音を置き換えられます。
+      effectUrls: Object.freeze({}),
+    }),
     caveAssets: Object.freeze({
       background: 'assets/stage/cave_background_reference.png',
       ground: 'assets/stage/ground_repeat.png',

@@ -5,8 +5,7 @@
   const $ = (id) => document.getElementById(id);
   let grade = 3,
     bests = { 3: 0, 4: 0 },
-    muted = false,
-    audio = null;
+    muted = false;
   let toastUntil = 0,
     previousTime = 0,
     accumulator = 0,
@@ -23,42 +22,13 @@
   }
   function save() {
     try {
-      localStorage.setItem(C.storageKey, JSON.stringify({ bests, muted }));
+      localStorage.setItem(C.storageKey, JSON.stringify({ bests, muted: audio.settings.muted }));
     } catch {
       $("storage-notice").hidden = false;
     }
   }
-  function tone(kind) {
-    if (muted) return;
-    try {
-      const Audio = window.AudioContext || window.webkitAudioContext;
-      if (!Audio) return;
-      audio ||= new Audio();
-      if (audio.state === "suspended") audio.resume().catch(() => {});
-      const notes =
-        kind === "correct"
-          ? [523, 659, 784]
-          : kind === "miss"
-            ? [190, 130]
-            : [kind === "start" ? 440 : 360];
-      notes.forEach((frequency, index) => {
-        const oscillator = audio.createOscillator(),
-          volume = audio.createGain();
-        oscillator.type = kind === "miss" ? "triangle" : "sine";
-        oscillator.frequency.value = frequency;
-        const start = audio.currentTime + index * 0.085;
-        volume.gain.setValueAtTime(0, start);
-        volume.gain.linearRampToValueAtTime(0.06, start + 0.01);
-        volume.gain.exponentialRampToValueAtTime(0.001, start + 0.18);
-        oscillator.connect(volume);
-        volume.connect(audio.destination);
-        oscillator.start(start);
-        oscillator.stop(start + 0.19);
-      });
-    } catch {
-      /* 効果音が使えない端末でもプレイは続行。 */
-    }
-  }
+  const audio = new P.AudioManager({ muted, onStorageError: () => { $("storage-notice").hidden = false; } });
+  P.audio = audio;
   function toast(message, style = "") {
     $("game-toast").textContent = message;
     $("game-toast").className = `game-toast visible ${style}`;
@@ -98,12 +68,11 @@
   }
   const game = new P.Game({
     onEvent(event) {
+      audio.handleEvent(event, game);
       if (event.type === "start") {
         showMode();
-        tone("start");
         toast(game.testMode ? `開発テスト：${game.distance}mから（記録保存なし）` : "↑ で上へジャンプ！　↓ で下の道へ");
       }
-      if (event.type === "move") tone("move");
       if (
         event.type === "pause" ||
         event.type === "resume" ||
@@ -116,7 +85,6 @@
         toast("上下で、正しい答えの道をえらぼう");
       }
       if (event.type === "correct") {
-        tone("correct");
         toast(
           event.special
             ? "せいかい！ 追手から少しはなれた！"
@@ -125,7 +93,6 @@
         );
       }
       if (event.type === "miss") {
-        tone("miss");
         toast(
           event.reason === "answer"
             ? `答えは ${event.answer}。だいじょうぶ、つぎへ！`
@@ -197,6 +164,7 @@
   async function start() {
     if (starting) return;
     starting = true;
+    audio.unlock(); // Must run before the first await for iPhone/Safari.
     try {
       await renderer.assetsReady;
       game.start(grade, developerDistance);
@@ -216,18 +184,39 @@
   for (const id of ["home-button", "pause-home-button"])
     $(id).addEventListener("click", () => game.home());
   $("sound-button").addEventListener("click", () => {
-    muted = !muted;
+    if (game.mode === "running") audio.unlock();
+    audio.setSettings({ muted: !audio.settings.muted });
     updateSound();
     save();
-    if (!muted) tone("start");
   });
   function updateSound() {
-    $("sound-button").setAttribute("aria-pressed", String(!muted));
-    $("sound-button").setAttribute(
-      "aria-label",
-      muted ? "効果音をオンにする" : "効果音をオフにする",
-    );
+    const s=audio.settings;
+    $("sound-button").setAttribute("aria-pressed", String(!s.muted));
+    $("sound-button").setAttribute("aria-label", s.muted ? "音をオンにする" : "すべての音をミュートする");
+    $("sound-button").title=s.muted ? "音をオンにする" : "すべての音をミュート";
+    $("audio-muted").checked=s.muted;
+    $("audio-bgm-enabled").checked=s.bgmEnabled;
+    $("audio-sfx-enabled").checked=s.sfxEnabled;
+    for(const [id,key] of [["audio-bgm-volume","bgmVolume"],["audio-sfx-volume","sfxVolume"]]) {
+      $(id).value=Math.round(s[key]*100);$(id+"-value").value=Math.round(s[key]*100)+"%";
+    }
   }
+  const audioDialog=$("audio-settings");
+  for(const id of ["audio-settings-open","audio-settings-pause","audio-settings-result"])
+    $(id).addEventListener("click",()=>{
+      if(game.mode==="running")game.pause();
+      updateSound();audioDialog.showModal();
+    });
+  $("audio-settings-close").addEventListener("click",()=>audioDialog.close());
+  audioDialog.addEventListener("keydown",event=>event.stopPropagation());
+  for(const [id,key] of [["audio-muted","muted"],["audio-bgm-enabled","bgmEnabled"],["audio-sfx-enabled","sfxEnabled"]])
+    $(id).addEventListener("change",()=>{audio.setSettings({[key]:$(id).checked});updateSound();save();});
+  for(const [id,key] of [["audio-bgm-volume","bgmVolume"],["audio-sfx-volume","sfxVolume"]])
+    $(id).addEventListener("input",()=>{audio.setSettings({[key]:Number($(id).value)/100});updateSound();});
+  // Resume an interrupted iOS context in a genuine input event, never by a timer.
+  for(const type of ["pointerdown","keydown"])
+    window.addEventListener(type,()=>{if(game.mode==="running" && audio.context?.state!=="running")audio.unlock();},{capture:true});
+  window.addEventListener("pagehide",()=>{if(game.mode==="running")game.pause();});
   function hud() {
     const stamp = `${Math.floor(game.distance)}:${game.misses}:${!!game.question}:${game.mode}`;
     if (stamp !== hudStamp) {
@@ -287,6 +276,7 @@
           : game.elapsed,
       now/1000,
     );
+    audio.update(game);
     hud();
     if (now > toastUntil) $("game-toast").classList.remove("visible");
     requestAnimationFrame(frame);

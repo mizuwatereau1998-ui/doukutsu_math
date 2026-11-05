@@ -1379,47 +1379,22 @@
         const gateX = C.playerX + (1 - progress) * 900;
         const first = q.choices.length === 3 ? 0 : 1;
         q.choices.forEach((choice, i) => {
-          const lane = first + i,
-            y = C.lanes[lane],
-            selected = game.player.lane === lane;
-          const color = q.special ? "#ffdd7b" : "#b4eace";
-          // 選択中の道だけを強調。色では正解がわからないようにする。
+          const lane = first + i, y = C.lanes[lane];
+          // All answers share one appearance; neither correctness nor selection changes it.
           c.save();
-          c.globalAlpha = selected ? 0.18 : 0.06;
-          c.fillStyle = color;
-          c.fillRect(
-            C.playerX - 25,
-            y - 80,
-            Math.max(0, gateX - C.playerX + 70),
-            82,
-          );
-          c.globalAlpha = 1;
-          c.lineWidth = selected ? 4 : 2;
-          this.rounded(
-            gateX - 47,
-            y - 84,
-            94,
-            82,
-            14,
-            selected ? "#efefcf" : "#204952",
-            selected ? "#ffdb7b" : color,
-          );
-          c.fillStyle = selected ? "#244c50" : color;
-          c.textAlign = "center";
-          c.font = "800 30px system-ui,sans-serif";
-          c.fillText(choice.label, gateX, y - 30);
-          c.fillStyle = color;
-          c.fillRect(gateX - 51, y - 3, 102, 5);
-          if (selected) {
-            this.polygon(
-              [
-                [gateX - 9, y - 105],
-                [gateX + 9, y - 105],
-                [gateX, y - 94],
-              ],
-              "#ffdf7e",
-            );
-          }
+          c.lineWidth = 4;
+          c.shadowColor = '#30255266';
+          c.shadowOffsetY = 4;
+          this.rounded(gateX - 52, y - 80, 104, 72, 18, '#fff5d9', '#6253a6');
+          c.shadowColor = 'transparent';
+          c.shadowOffsetY = 0;
+          c.lineWidth = 2;
+          this.rounded(gateX - 46, y - 74, 92, 60, 13, null, '#fffdf5');
+          c.fillStyle = '#182b50';
+          c.textAlign = 'center';
+          c.textBaseline = 'middle';
+          c.font = '900 36px system-ui,sans-serif';
+          c.fillText(choice.label, gateX, y - 44, 84);
           c.restore();
         });
       }

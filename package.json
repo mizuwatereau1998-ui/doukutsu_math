@@ -6,7 +6,7 @@
   "scripts": {
     "start": "python3 -m http.server 8000 --bind 0.0.0.0",
     "test": "node tests/game.test.mjs",
-    "check": "node --check js/config.js && node --check js/math.js && node --check js/physics.js && node --check js/obstacles.js && node --check js/game.js && node --check js/renderer.js && node --check js/input.js && node --check js/main.js"
+    "check": "node --check js/config.js && node --check js/audio.js && node --check js/math.js && node --check js/physics.js && node --check js/obstacles.js && node --check js/game.js && node --check js/renderer.js && node --check js/input.js && node --check js/main.js"
   },
   "engines": {
     "node": ">=18"

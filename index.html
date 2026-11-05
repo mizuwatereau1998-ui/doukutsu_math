@@ -15,6 +15,7 @@
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="style.css" />
     <script defer src="js/config.js"></script>
+    <script defer src="js/audio.js"></script>
     <script defer src="js/math.js"></script>
     <script defer src="js/physics.js"></script>
     <script defer src="js/obstacles.js"></script>
@@ -62,12 +63,13 @@
           ><button
             class="icon-button"
             id="sound-button"
-            aria-label="効果音をオフにする"
+            aria-label="すべての音をミュートする"
             aria-pressed="true"
-            title="効果音"
+            title="すべての音をミュート"
           >
             ♪
           </button>
+          <button class="icon-button audio-settings-opener" id="audio-settings-open" aria-label="音の設定" title="音の設定">音</button>
         </div>
       </header>
 
@@ -201,6 +203,7 @@
               ><button class="text-button" id="pause-home-button">
                 学年選択にもどる
               </button>
+              <button class="text-button" id="audio-settings-pause">音の設定</button>
             </div>
           </div>
           <div class="screen modal-screen" id="result-screen" hidden>
@@ -229,6 +232,7 @@
               ><button class="text-button" id="home-button">
                 学年選択にもどる
               </button>
+              <button class="text-button" id="audio-settings-result">音の設定</button>
             </div>
           </div>
           <div class="rotate-notice" id="rotate-notice">
@@ -289,5 +293,16 @@
         を有効にしてください。</noscript
       >
     </div>
+    <dialog id="audio-settings" class="audio-dialog" aria-labelledby="audio-settings-title">
+      <h2 id="audio-settings-title">音の設定</h2>
+      <label class="audio-toggle"><span>すべての音をミュート</span><input id="audio-muted" type="checkbox" /></label>
+      <label class="audio-toggle"><span>BGM</span><input id="audio-bgm-enabled" type="checkbox" checked /></label>
+      <label class="audio-volume" for="audio-bgm-volume">BGMの音量 <output id="audio-bgm-volume-value">50%</output></label>
+      <input id="audio-bgm-volume" type="range" min="0" max="100" step="1" value="50" />
+      <label class="audio-toggle"><span>効果音</span><input id="audio-sfx-enabled" type="checkbox" checked /></label>
+      <label class="audio-volume" for="audio-sfx-volume">効果音の音量 <output id="audio-sfx-volume-value">70%</output></label>
+      <input id="audio-sfx-volume" type="range" min="0" max="100" step="1" value="70" />
+      <button class="primary-button" id="audio-settings-close">とじる</button>
+    </dialog>
   </body>
 </html>

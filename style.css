@@ -540,16 +540,16 @@ h1 em {
   min-width: 200px;
   text-align: center;
   padding: 10px 20px 13px;
-  background: #f9f7ed;
-  border: 2px solid #a5ead2;
-  border-radius: 13px;
-  color: #234850;
-  box-shadow: 0 7px 24px #0d263c30;
+  background: #fff5d9;
+  border: 4px solid #6253a6;
+  border-radius: 20px;
+  color: #182b50;
+  box-shadow: 0 4px 0 #30255288, inset 0 2px 0 #fffdf5;
 }
 .question-caption {
   font-size: 11px;
   letter-spacing: 0.08em;
-  color: #5c857d;
+  color: #686187;
 }
 .equation {
   font-size: clamp(20px, 2.8cqw, 39px);
@@ -560,45 +560,37 @@ h1 em {
 }
 .question-timer {
   height: 4px;
-  background: #dce6dc;
+  background: #e5dbef;
   border-radius: 4px;
   overflow: hidden;
   margin-top: 2px;
 }
 .question-timer i {
   display: block;
-  background: #42bba3;
+  background: #8271bd;
   height: 100%;
   transform-origin: left;
   transition: background 0.2s;
 }
-.question-banner.special {
-  border-color: #f6ce63;
-  box-shadow: 0 0 26px #ffdf7538;
-}
-.question-banner.special .equation {
-  color: #8d681c;
-  text-shadow: 0 0 18px #f4cf8f;
-}
 .question-banner.special::before,
 .question-banner.special::after {
-  content: "✦";
+  content: "";
   position: absolute;
-  font-size: 20px;
-  color: #ffdb79;
-  top: 15%;
-  left: -27px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ffe59d;
+  box-shadow: -8px 17px 0 #fff4c4, 10px -12px 0 #ffe59d, -1px 42px 0 #fff4c4;
+  top: 8%;
+  left: -12px;
   animation: twinkle 1.6s ease-in-out infinite alternate;
+  pointer-events: none;
 }
 .question-banner.special::after {
   left: auto;
-  right: -25px;
-  top: 57%;
-  font-size: 13px;
+  right: -12px;
+  top: 35%;
   animation-delay: 0.6s;
-}
-.question-banner.special .question-timer i {
-  background: #c9a139;
 }
 .hud.question-active .chase-card {
   margin-right: 55px;
@@ -1184,4 +1176,33 @@ kbd {
 }
 .grade-options small {
   white-space: nowrap;
+}
+
+/* Audio controls remain reachable in the pause menu on small landscape screens. */
+.audio-settings-opener { font-size: 13px; }
+.audio-dialog {
+  width: min(390px, calc(100vw - 32px));
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  padding: 24px;
+  border: 1px solid #d5ddd3;
+  border-radius: 20px;
+  background: #f8f6ed;
+  color: #264349;
+  box-shadow: 0 16px 70px #071b2c66;
+}
+.audio-dialog::backdrop { background: #102c3b80; }
+.audio-dialog h2 { font-size: 22px; margin: 0 0 16px; }
+.audio-toggle { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:10px 0; font-size:14px; }
+.audio-toggle input { width:22px; height:22px; accent-color:#427b84; }
+.audio-volume { display:flex; justify-content:space-between; font-size:12px; margin:6px 0; }
+.audio-dialog input[type="range"] { display:block; width:100%; height:28px; accent-color:#427b84; }
+.audio-dialog .primary-button { width:100%; margin-top:18px; }
+#pause-home-button, #audio-settings-pause, #home-button, #audio-settings-result { display:inline-block; width:auto; margin:12px 8px 0; }
+@media (orientation:landscape) and (max-height:600px) {
+  .audio-dialog { padding:14px 20px; }
+  .audio-dialog h2 { font-size:18px; margin-bottom:6px; }
+  .audio-toggle { padding:5px 0; }
+  .audio-dialog .primary-button { min-height:38px; padding:8px 16px; margin-top:10px; }
+  #pause-home-button, #audio-settings-pause, #home-button, #audio-settings-result { margin:8px 6px 0; }
 }
