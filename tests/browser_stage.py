@@ -43,7 +43,7 @@ with sync_playwright() as p:
             if(JSON.stringify(caps.map(t=>t[0]))!==JSON.stringify([0,2,0,2]))throw Error('pit cap order');
             // 各パネルの元画像上面を変換した先が物理の走行ラインになる。
             const A=C.caveVisuals.ground;
-            for(const d of draws.filter(d=>d.key==='ground')) {
+            for(const d of draws.filter(d=>['ground','groundLeft','groundRight'].includes(d.key))) {
               const a=d.args;
               const surface=a[5]+(A.surfaceY-a[1])*a[7]/a[3];
               if(!C.lanes.some(y=>Math.abs(surface-y)<1e-6))throw Error('surface drift');
@@ -62,16 +62,19 @@ with sync_playwright() as p:
               {kind:'stalactite',lane:1,x:1090,width:55},
               {kind:'bat',lane:1,x:700,width:36,age:.1,seed:0},
               {kind:'spider',lane:2,x:1000,width:36,spiderStartX:1120,spiderRate:100}];
-            return {status:r.caveAssetStatus,groundImages:draws.filter(d=>d.key==='ground').length};
+            return {status:r.caveAssetStatus,groundImages:draws.filter(d=>['ground','groundLeft','groundRight'].includes(d.key)).length};
           } finally {
             r.ctx.drawImage=draw;r.polygon=polygon;r.terrain=terrain;r.groundTile=tile;
           }
         }''')
-        assert result['status']=={'loaded':7,'failed':[]},result
+        assert result['status']=={'loaded':9,'failed':[]},result
         page.add_style_tag(content='#pause-screen {display:none !important}')
         page.wait_for_timeout(100)
         page.screenshot(path='/tmp/stage-mobile.png' if mobile else '/tmp/stage-desktop.png',full_page=True)
-        page.evaluate('PopEscape.game.distance=0;PopEscape.game.player.topLane=1')
+        page.evaluate('''() => {
+          const g=PopEscape.game;g.distance=0;g.player.topLane=1;
+          g.obstacles=g.obstacles.filter(o=>o.lane!==0);
+        }''')
         page.wait_for_timeout(100)
         page.screenshot(path='/tmp/stage-mobile-two-lanes.png' if mobile else '/tmp/stage-desktop-two-lanes.png',full_page=True)
         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')

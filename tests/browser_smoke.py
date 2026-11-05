@@ -154,7 +154,7 @@ with sync_playwright() as p:
     mp.evaluate('PopEscape.game.obstacles=[]')
     mp.wait_for_timeout(1300)
     # 急降下型・群れ型も実際のCanvas描画に通す。
-    mp.evaluate("""() => {
+    before_y=mp.evaluate("""() => {
       const g=PopEscape.game, C=PopEscape.CONFIG;
       g.distance=2500;
       g.speed=C.startSpeed+(C.maxSpeed-C.startSpeed)*(1-Math.exp(-g.distance/C.speedGrowthDistance));
@@ -163,12 +163,14 @@ with sync_playwright() as p:
         x:800,diveRate:rate,diveStartX:805},
         {kind:'bat',batType:'flock',lane:1,width:36,seed:0.3,age:0,x:1080},
         {kind:'bat',batType:'flock',lane:2,width:36,seed:0.5,age:0,x:1390}];
+      // 撮影中もゲームは進む。衝突後に配列から除かれても同じ個体を検証する。
+      window.smokeDive=g.obstacles[0];
+      return PopEscape.Obstacles.batY(window.smokeDive);
     }""")
     mp.wait_for_timeout(100)
     mp.screenshot(path='/tmp/poppun-dive-warning.png', full_page=True)
-    before_y=mp.evaluate('PopEscape.Obstacles.batY(PopEscape.game.obstacles[0])')
     mp.wait_for_timeout(600)
-    after_y=mp.evaluate('PopEscape.Obstacles.batY(PopEscape.game.obstacles[0])')
+    after_y=mp.evaluate('PopEscape.Obstacles.batY(window.smokeDive)')
     assert after_y>before_y+15
     mp.screenshot(path='/tmp/poppun-flock-dive.png', full_page=True)
     mp.evaluate('PopEscape.game.obstacles=[]')

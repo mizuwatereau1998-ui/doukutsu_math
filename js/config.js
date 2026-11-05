@@ -6,9 +6,11 @@
     width: 1280,
     height: 720,
     caveAssets: Object.freeze({
-      background: 'assets/stage/cave_bg_main.png',
-      ground: 'assets/stage/cave_ground_tileset.png',
-      pit: 'assets/stage/cave_pit_fill.png',
+      background: 'assets/stage/cave_background_reference.png',
+      ground: 'assets/stage/ground_repeat.png',
+      groundLeft: 'assets/stage/ground_gap_left_edge.png',
+      groundRight: 'assets/stage/ground_gap_right_edge.png',
+      pit: 'assets/stage/pit_depth.png',
       spikes: 'assets/stage/cave_spikes.png',
       stalactite: 'assets/stage/amethyst_stalactite.png',
       bat: 'assets/enemies/purple_bat_sheet.png',
@@ -19,13 +21,14 @@
       loadTimeoutMs: 8000,
       background: { scale: 1, parallax: 0.08, offsetX: 0, offsetY: 0 },
       ground: {
-        // 横3パネル（各724px）の透明な左右余白を除く。上面は元画像のy=205。
-        frames: [[28, 95, 628, 505], [756, 95, 660, 505], [1518, 95, 627, 505]],
-        surfaceY: 205, tileWidth: 192, edgeWidth: 160,
+        // V2は各640×280pxの独立画像。上面の基準を物理のレーンYに合わせる。
+        imageKeys: ['groundLeft', 'ground', 'groundRight'],
+        frames: [[0, 0, 640, 280], [0, 0, 640, 280], [0, 0, 640, 280]],
+        surfaceY: 36, tileWidth: 192, edgeWidth: 160,
         floatingDepth: 50, floorDepth: 180, scale: 1, offsetY: 0,
       },
-      // 天井の絵を除いた深部を使い、穴の入口をふさがない。
-      pit: { source: [0, 500, 1122, 902], offsetY: 0, opacity: 1 },
+      // 穴だけを少し暗くする。背景全体には暗色を重ねない。
+      pit: { source: [0, 0, 640, 500], offsetY: 0, opacity: 1 },
       spikes: { source: [68, 390, 1090, 440], groupWidth: 140, offsetY: 2 },
       // 中央の長い岩を切り出し、細い既存の危険範囲に合わせる。
       stalactite: { source: [440, 365, 340, 680], roofY: 0, widthPadding: 8, offsetY: 0 },

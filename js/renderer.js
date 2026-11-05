@@ -964,18 +964,30 @@
       }
       c.restore();
     }
-    groundTile(index, x, y, width, depth) {
-      const A = C.caveVisuals.ground, image = this.caveImages.ground;
+    groundTile(index, x, y, width, depth, mirror = false) {
+      const A = C.caveVisuals.ground, image = this.caveImages[A.imageKeys[index]];
+      if (!image) {
+        // 端画像だけ失敗した場合も、その区間は既存Canvas地面で描く。
+        const lane = C.lanes.indexOf(y);
+        this.terrain(x, y, width, lane, 0, false, false, true);
+        return;
+      }
       const [sx, sy, sw, sh] = A.frames[index];
       const scaleY = depth / (sy + sh - A.surfaceY);
-      this.ctx.drawImage(image, sx, sy, sw, sh, x,
+      const c = this.ctx;
+      c.save();
+      // 中央タイルの左右端を交互に合わせ、色差のある垂直な継ぎ目を避ける。
+      c.translate(x + (mirror ? width : 0), 0);
+      c.scale(mirror ? -1 : 1, 1);
+      c.drawImage(image, sx, sy, sw, sh, 0,
         y + A.offsetY - (A.surfaceY - sy) * scaleY, width, sh * scaleY);
+      c.restore();
     }
-    terrain(x, y, width, lane, scroll, leftPit = false, rightPit = false) {
+    terrain(x, y, width, lane, scroll, leftPit = false, rightPit = false, forceCanvas = false) {
       if (width <= 0) return;
       const c = this.ctx,
         floor = lane === 2;
-      if (this.caveImages?.ground) {
+      if (this.caveImages?.ground && !forceCanvas) {
         const A = C.caveVisuals.ground;
         const depth = (floor ? A.floorDepth : A.floatingDepth) * A.scale;
         const tileWidth = A.tileWidth * A.scale;
@@ -989,7 +1001,7 @@
         const first = Math.floor((scroll + Math.max(-tileWidth, x + left)) / tileWidth);
         const end = Math.min(C.width + tileWidth, x + width - right);
         for (let n = first; n * tileWidth - scroll < end; n++)
-          this.groundTile(1, n * tileWidth - scroll, y, tileWidth, depth);
+          this.groundTile(1, n * tileWidth - scroll, y, tileWidth, depth, n % 2 !== 0);
         c.restore();
         // 穴の右岸は右穴端（2）、左岸は左穴端（0）。透明な崖を穴側に向ける。
         if (leftPit) this.groundTile(2, x, y, left, depth);

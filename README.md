@@ -323,20 +323,33 @@ npm test
 
 HTTPサーバー起動後、`python3 tests/browser_cave.py` でPC・スマホ横向きの画像読み込み、コマ切り替え、両着地点の本体位置、停止、画像読み込み失敗時の代替描画を確認できます。スクリーンショットは `/tmp/cave-desktop.png` と `/tmp/cave-mobile.png` に保存します。
 
-## 背景・地面・穴の画像
+## 背景・地面・穴の画像（V2・視認性改善）
 
-- 背景：`assets/stage/cave_bg_main.png`
-- 地面：`assets/stage/cave_ground_tileset.png`
-- 穴の深部：`assets/stage/cave_pit_fill.png`
+| 用途 | 画像パス |
+| --- | --- |
+| 指定の背景・元の色調のまま | `assets/stage/cave_background_reference.png` |
+| 通常地面 | `assets/stage/ground_repeat.png` |
+| 穴の左岸（地面の終端） | `assets/stage/ground_gap_left_edge.png` |
+| 穴の右岸（地面の再開） | `assets/stage/ground_gap_right_edge.png` |
+| 穴の奥だけの半透明素材 | `assets/stage/pit_depth.png` |
 
-`js/config.js` の `caveVisuals.background` / `ground` / `pit` が表示用設定です。ゲームの速度・走行ライン・穴の当たり判定は変更しません。
+画像ファイルは添付PNGのままで、色調補正・暗色フィルター・画面全体への黒オーバーレイはありません。`preview.jpg` は読み込みません。トゲ・鍾乳石は既存の正常な画像を維持し、ポップン・追手・コウモリ・クモのアニメーションやゲームのルールも変更していません。
 
-背景は画面を覆う倍率で描き、左右反転を交互に使ってループします。`background.parallax`（初期値0.08）で遠景の速度、`scale`（1以上）と `offsetX/Y` で倍率・位置を調整できます。
+設定は `js/config.js` の `caveAssets` と `caveVisuals.background` / `ground` / `pit` にまとめています。
 
-地面シートは2172×724pxで、左・中央・右の各パネルが724px幅です。透明余白を除く切り出しを `ground.frames` に `[x, y, 幅, 高さ]` で指定しています。左穴端は `[28,95,628,505]`、中央は `[756,95,660,505]`、右穴端は `[1518,95,627,505]`。元画像上面の `surfaceY=205` が各段の物理的な走行ラインに一致するよう描きます。中央タイルはワールド座標に固定して反復し、穴の左岸には左穴端、右岸には右穴端を配置します。穴の区間には地面を描きません。
+- 背景：画面を覆う倍率（`scale=1`）、`parallax=0.08`、`offsetX/Y=0`。左右反転を交互に使い、同じ画像端どうしが接するようにループします。画像の明るさはそのままです。
+- 地面：V2は独立した640×280px画像で、3枚とも全体 `[0,0,640,280]` を切り出します。`imageKeys` は左岸・中央・右岸の順。`surfaceY=36` を物理のレーンY座標（310・435・560）に合わせます。
+- 地面の幅・厚み：`tileWidth=192`、`edgeWidth=160`、`floatingDepth=50`、`floorDepth=180`、`scale=1`、`offsetY=0`。倍率を変えても上面の基準位置は維持されます。中央タイルは世界座標に固定し、左右反転を交互に使って端の色差を抑えます。反復の速度は障害物・地面のスクロールと一致します。
+- 穴：既存障害物のX位置・幅の間には地面を描きません。左岸と右岸は独立した専用画像で、透明な崖の向きを維持します。幅の短い足場では端タイルを縮め、穴の判定を変更しません。
+- 奥行き：`pit.source=[0,0,640,500]`、`offsetY=0`、`opacity=1`。素材自体の半透明を保ち、穴の中だけに画面下まで表示します。背景に描かれた床が穴の入口で足場に見えることを抑えます。`opacity` を下げると背景がより透けます。
 
-`ground.tileWidth` は反復幅、`edgeWidth` は端タイルの幅、`floatingDepth` / `floorDepth` は上・中段と最下段の厚み、`scale` はそれらの共通倍率、`offsetY` は接地位置の補正です。最下段の地面は画面下まで続きます。倍率を変えても `offsetY=0` なら上面の基準位置は変わりません。
+読み込み失敗時は既存Canvas描画に戻ります。左右の端画像だけが失敗した場合も、その端の区間をCanvasで描きます。仮の三角形や黄色い穴縁は再導入していません。
 
-穴には `pit.source=[0,500,1122,902]` で天井部分を除いた深部を切り出し、穴のX位置・幅に合わせて画面下まで表示します。`pit.offsetY` / `opacity` で位置と濃さを調整できます。仮の三角形や黄色い矩形の穴縁は削除しました。既存の画像障害物・キャラクター・UIはこの地形より手前に描画します。
+HTTPサーバー起動後に実行します。
 
-HTTPサーバー起動後、`python3 tests/browser_stage.py` で背景画像、地面の反復、左右端の使い分け、上面位置、穴の空間、重複・画面外の穴、ゲーム状態を描画が変更しないことをPC・スマホ横向きで検証します。スクリーンショットは `/tmp/stage-desktop.png`・`/tmp/stage-mobile.png` に保存します。
+```sh
+python3 tests/browser_stage.py
+python3 tests/browser_stage_v2.py
+```
+
+前者は2段・3段のPC／スマホ横向き表示、端タイル、走行ライン、穴と地面の区間を確認し、`/tmp/stage-desktop.png`・`/tmp/stage-mobile.png` と2段版を保存します。後者は背景が元画像とピクセル単位で一致すること、背景と地面の継ぎ目、500px/秒相当の60フレーム、実際の物理更新と世界座標スクロールの一致、背景・地面・左右端・深度素材の個別読み込み失敗を検証します。
