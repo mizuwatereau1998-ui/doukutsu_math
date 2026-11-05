@@ -300,3 +300,25 @@ npm test
 ブラウザの開発者コンソールから `PopEscape.startTest(3000)` のように実行しても開始できます。再挑戦は同じテスト距離から始まります。通常の開始に戻すには `PopEscape.endTest()` を実行するか、クエリなしのページを再読み込みしてください。
 
 テスト走行では最高記録を更新・保存しません。ゲームオーバーの結果画面にも保存しない旨を表示します。最初の算数はテスト距離から次の150mの節目が基準になり、初回の判断時間は6秒です。
+
+## 洞窟の画像アセット
+
+トゲ・鍾乳石・コウモリ・クモは透過PNGで描画します。元画像のまま保存し、Canvasの切り出しで透明余白とコマごとの本体位置を補正しています。
+
+| 用途 | 画像パス |
+| --- | --- |
+| 地面の五本岩スパイク | `assets/stage/cave_spikes.png` |
+| 紫水晶の鍾乳石 | `assets/stage/amethyst_stalactite.png` |
+| コウモリ横3コマ | `assets/enemies/purple_bat_sheet.png` |
+| クモ横3コマ | `assets/enemies/cave_spider_sheet.png` |
+
+調整は `js/config.js` の `caveAssets`（画像パス）と `caveVisuals`（表示設定）で行います。
+
+- `spikes.source`：切り出し範囲。`groupWidth`：画像を繰り返す幅の目安。`offsetY`：接地位置。表示の高さは既存の `spikeHeight` に合わせます。
+- `stalactite.source`：中央の長い岩の切り出し範囲。`roofY`：天井の接続位置。`widthPadding`：危険範囲に対する左右合計の余白。`offsetY`：上下補正。先端は既存の危険範囲の下端に合わせます。
+- `bat.fps`：10fps。`sequence`：0→1→2→1。`frames` の `source` / `anchor`：切り出し範囲と本体中心の元画像座標。`bodyWidth`・`scale`・`offsetX/Y`：表示倍率と位置補正。通常・急降下・群れ・大型のすべてに適用します。
+- `spider.frames`：上・中・下のコマと本体中心。`threadRoofY`：糸の天井側の接続位置。`bodyWidth/Height`・`scale`・`offsetX/Y`：表示倍率と位置補正。既存の降下・停止・上昇の本体座標に合わせ、降下率でコマを切り替えます。両方の着地点に対応し、糸は天井からCanvasで補います。
+
+画像は開始前にロードし、読み込み失敗時は従来の図形描画に戻ります。羽ばたきは障害物の経過時間を使い、一時停止中は停止します。当たり判定・出現頻度・移動速度・算数・操作・ポップンと追手のアニメーションは従来の処理を維持しています。最下段の穴も維持しています。
+
+HTTPサーバー起動後、`python3 tests/browser_cave.py` でPC・スマホ横向きの画像読み込み、コマ切り替え、両着地点の本体位置、停止、画像読み込み失敗時の代替描画を確認できます。スクリーンショットは `/tmp/cave-desktop.png` と `/tmp/cave-mobile.png` に保存します。

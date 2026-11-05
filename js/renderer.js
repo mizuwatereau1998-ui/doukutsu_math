@@ -210,10 +210,45 @@
       this.monsterImages = {};
       this.monsterAssetStatus = { loaded: 0, failed: [] };
       this.monsterReady = this.loadMonsters();
-      this.assetsReady = Promise.all([this.ready, this.monsterReady]);
+      this.caveImages = {};
+      this.caveAssetStatus = { loaded: 0, failed: [] };
+      this.caveReady = this.loadCaveAssets();
+      this.assetsReady = Promise.all([this.ready, this.monsterReady, this.caveReady]);
       this.resize();
       this.observer = new ResizeObserver(() => this.resize());
       this.observer.observe(canvas);
+    }
+    loadCaveAssets() {
+      return Promise.all(Object.entries(C.caveAssets).map(([key, path]) => new Promise(resolve => {
+        const image = new Image();
+        let settled = false;
+        const finish = success => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+          image.onload = image.onerror = null;
+          if (success) { this.caveImages[key] = image; this.caveAssetStatus.loaded++; }
+          else this.caveAssetStatus.failed.push(key);
+          resolve();
+        };
+        const timeout = setTimeout(() => finish(false), C.caveVisuals.loadTimeoutMs);
+        image.onload = async () => {
+          try { if (image.decode) await image.decode(); finish(image.naturalWidth > 0); }
+          catch { finish(false); }
+        };
+        image.onerror = () => finish(false);
+        image.src = path;
+      }))).then(() => this.caveAssetStatus);
+    }
+    // コマごとの余白・本体位置を補正。物理座標には書き戻さない。
+    caveSprite(key, frame, x, y, sx, sy = sx) {
+      const image = this.caveImages?.[key];
+      if (!image) return false;
+      const [left, top, width, height] = frame.source;
+      this.ctx.drawImage(image, left, top, width, height,
+        x + (left - frame.anchor[0]) * sx, y + (top - frame.anchor[1]) * sy,
+        width * sx, height * sy);
+      return true;
     }
     loadCharacters() {
       if (!C.useCharacterImages) return Promise.resolve(this.assetStatus);
@@ -1031,6 +1066,14 @@
       const c = this.ctx,
         x = obstacle.x + obstacle.width / 2,
         y = P.Obstacles.batY(obstacle);
+      const A = C.caveVisuals.bat;
+      const frame = A.sequence[Math.floor(Math.max(0, obstacle.age || 0) * A.fps) % A.sequence.length];
+      if (this.caveSprite('bat', A.frames[frame], x + A.offsetX, y + A.offsetY,
+        obstacle.width / A.bodyWidth * A.scale, 24 / A.bodyWidth * A.scale)) {
+        if (obstacle.batType === 'dive' && obstacle.x <= obstacle.diveStartX &&
+            P.Obstacles.diveProgress(obstacle) === 0) this.star(x, y - 34, 8, '#ffdb7b');
+        return;
+      }
       const flap = this.reducedMotion.matches
         ? 0.2
         : Math.sin((obstacle.age || 0) * 18 + obstacle.seed * 6.28);
@@ -1114,12 +1157,23 @@
         x = o.x + o.width / 2,
         p = P.Obstacles.spiderPose(o);
       c.save();
-      c.strokeStyle = p.phase === "warning" ? "#ffe2a4" : "#c4dedc";
+      c.strokeStyle = p.phase === "warning" ? "#ffe2a4" :
+        this.caveImages?.spider ? "#cbb5ff" : "#c4dedc";
       c.lineWidth = p.phase === "warning" ? 2.5 : 1.4;
       c.beginPath();
-      c.moveTo(x, 65);
+      c.moveTo(x, this.caveImages?.spider ? C.caveVisuals.spider.threadRoofY : 65);
       c.lineTo(x, p.y);
       c.stroke();
+      const A = C.caveVisuals.spider;
+      const progress = P.clamp((p.y - C.spiderRoofY) /
+        (C.lanes[o.lane] - 27 - C.spiderRoofY), 0, 1);
+      const frame = progress < 0.25 ? 0 : progress < 0.75 ? 1 : 2;
+      if (this.caveSprite('spider', A.frames[frame], x + A.offsetX, p.y + A.offsetY,
+        o.width / A.bodyWidth * A.scale, C.spiderRadius * 2 / A.bodyHeight * A.scale)) {
+        if (p.phase === 'warning') this.star(x, p.y - 32, 6, '#ffe2a4');
+        c.restore();
+        return;
+      }
       c.translate(
         x + (p.phase === "warning" ? Math.sin(time * 65) * 3 : 0),
         p.y,
@@ -1190,6 +1244,15 @@
       }
       for (const o of game.obstacles) {
         if (o.kind === "spikes") {
+          const image = this.caveImages?.spikes, A = C.caveVisuals.spikes;
+          if (image) {
+            const groups = Math.max(1, Math.ceil(o.width / A.groupWidth));
+            for (let i = 0; i < groups; i++)
+              c.drawImage(image, ...A.source, o.x + i * o.width / groups,
+                C.lanes[o.lane] - C.spikeHeight + A.offsetY,
+                o.width / groups, C.spikeHeight);
+            continue;
+          }
           for (const triangle of P.Obstacles.spikeTriangles(o))
             this.polygon(triangle, "#b7c8cf", "#e8f4f5", 1.5);
           continue;
@@ -1203,6 +1266,12 @@
           continue;
         }
         if (o.kind !== "stalactite") continue;
+        const image = this.caveImages?.stalactite, A = C.caveVisuals.stalactite;
+        if (image) {
+          c.drawImage(image, ...A.source, o.x - A.widthPadding / 2, A.roofY + A.offsetY,
+            o.width + A.widthPadding, C.lanes[1] - 5 - A.roofY);
+          continue;
+        }
         const x = o.x,
           w = o.width,
           y = C.lanes[1] - 5;

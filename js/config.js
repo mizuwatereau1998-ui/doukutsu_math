@@ -5,6 +5,33 @@
   P.CONFIG = Object.freeze({
     width: 1280,
     height: 720,
+    caveAssets: Object.freeze({
+      spikes: 'assets/stage/cave_spikes.png',
+      stalactite: 'assets/stage/amethyst_stalactite.png',
+      bat: 'assets/enemies/purple_bat_sheet.png',
+      spider: 'assets/enemies/cave_spider_sheet.png',
+    }),
+    // 描画だけの設定。source/anchor は元PNGのピクセル座標。
+    caveVisuals: Object.freeze({
+      loadTimeoutMs: 8000,
+      spikes: { source: [68, 390, 1090, 440], groupWidth: 140, offsetY: 2 },
+      // 中央の長い岩を切り出し、細い既存の危険範囲に合わせる。
+      stalactite: { source: [440, 365, 340, 680], roofY: 0, widthPadding: 8, offsetY: 0 },
+      bat: { fps: 10, sequence: [0, 1, 2, 1], bodyWidth: 260,
+        scale: 1, offsetX: 0, offsetY: 0,
+        frames: [
+          { source: [25, 125, 685, 425], anchor: [350, 410] },
+          { source: [735, 170, 690, 380], anchor: [1060, 410] },
+          { source: [1510, 170, 605, 450], anchor: [1775, 410] },
+        ] },
+      spider: { bodyWidth: 250, bodyHeight: 280, threadRoofY: 0,
+        scale: 1, offsetX: 0, offsetY: 0,
+        frames: [
+          { source: [170, 115, 390, 370], anchor: [365, 300] },
+          { source: [870, 220, 440, 390], anchor: [1090, 410] },
+          { source: [1550, 320, 530, 380], anchor: [1810, 525] },
+        ] },
+    }),
     playerX: 310,
     playerRadius: 27,
     lanes: Object.freeze([310, 435, 560]),

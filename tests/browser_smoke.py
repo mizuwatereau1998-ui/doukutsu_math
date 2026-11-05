@@ -203,9 +203,13 @@ with sync_playwright() as p:
     dev.click('#retry-button')
     assert dev.evaluate('PopEscape.game.testMode && PopEscape.game.distance>=3000')
     for distance in [900,1500,2000,3000]:
-        dev.evaluate('(d)=>PopEscape.startTest(d)',distance)
-        assert dev.evaluate('PopEscape.game.testMode && PopEscape.game.player.topLane===0')
-        assert dev.evaluate('PopEscape.game.distance') == distance
+        # 開始直後の状態を同じ評価内で取得し、RAFによる距離の進行と競合させない。
+        initial = dev.evaluate('''async d => {
+          await PopEscape.startTest(d);
+          const g=PopEscape.game;
+          return {distance:g.distance,testMode:g.testMode,topLane:g.player.topLane};
+        }''', distance)
+        assert initial == {'distance':distance,'testMode':True,'topLane':0}, initial
     dev.evaluate('PopEscape.endTest()')
     dev.click('#start-button')
     assert dev.evaluate('!PopEscape.game.testMode && PopEscape.game.distance<20')
